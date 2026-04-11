@@ -45,7 +45,7 @@ fn python_inline(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Resul
     spawn_python(cmd, vfs, pm)
 }
 
-fn spawn_python(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+fn spawn_python(cmd: &Command, _vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(output) = try_spawn_system_python(cmd, vfs) {

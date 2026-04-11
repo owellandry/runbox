@@ -110,6 +110,7 @@ fn registry_install_package(name: &str, version_req: &str, vfs: &mut Vfs) -> cra
     Ok(pkg.version)
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct RegistryPackage {
     #[allow(dead_code)]
@@ -119,6 +120,7 @@ struct RegistryPackage {
     dist:    RegistryDist,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct RegistryDist {
     tarball:   String,
@@ -291,7 +293,7 @@ fn pm_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager, pm_name: &s
     }
 
     let mut resolved = 0usize;
-    let mut failed: Vec<&str> = vec![];
+    let failed: Vec<&str> = vec![];
 
     if let Some(pkg) = &pkg {
         write_lock(vfs, pm_name, pkg)?;
