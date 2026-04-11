@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-# rlib para native; wasm-pack añade cdylib automáticamente al compilar para WASM
-crate-type = ["rlib"]
+# Necesario para wasm-pack (WASM) y para reutilizar el crate en nativo.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Serialización
