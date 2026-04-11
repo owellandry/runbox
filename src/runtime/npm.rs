@@ -88,7 +88,7 @@ fn registry_resolve(name: &str, version_req: &str) -> crate::error::Result<Regis
 
 #[cfg(not(target_arch = "wasm32"))]
 fn registry_install_package(name: &str, version_req: &str, vfs: &mut Vfs) -> crate::error::Result<String> {
-    use crate::network::{http_get, extract_tgz_to_vfs};
+    use crate::network::http_get;
 
     let pkg = registry_resolve(name, version_req)?;
     let tarball_url = &pkg.dist.tarball;
@@ -218,25 +218,42 @@ pub fn packages_needed(vfs: &Vfs) -> Vec<NpmPackageRequest> {
 }
 
 /// Instala un paquete dado su tarball en bytes (llamado desde JS en WASM).
-pub fn process_tarball(name: &str, version: &str, bytes: &[u8], vfs: &mut Vfs) -> Result<()> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use crate::network::extract_tgz_to_vfs;
-        extract_tgz_to_vfs(bytes, name, vfs)?;
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        // En WASM no tenemos flate2/tar — usar el helper de JS (si disponible)
-        // Por ahora almacenar los bytes crudos y marcar como instalado
-        let _ = bytes; // los bytes ya fueron procesados por JS si se usa el flujo correcto
-    }
+pub fn process_tarball(name: &str, _version: &str, bytes: &[u8], vfs: &mut Vfs) -> Result<()> {
+    extract_tgz_to_vfs(bytes, name, vfs)?;
+    Ok(())
+}
 
-    // Actualizar node_modules/<name>/package.json
-    let nm_pkg = serde_json::json!({ "name": name, "version": version });
-    vfs.write(
-        &format!("/node_modules/{name}/package.json"),
-        serde_json::to_string(&nm_pkg).unwrap().into_bytes(),
-    )?;
+/// Extrae un .tgz al VFS bajo /node_modules/<name>/
+fn extract_tgz_to_vfs(bytes: &[u8], name: &str, vfs: &mut Vfs) -> Result<()> {
+    use flate2::read::GzDecoder;
+    use tar::Archive;
+    use std::io::Read;
+
+    let gz = GzDecoder::new(bytes);
+    let mut archive = Archive::new(gz);
+
+    for entry in archive.entries().map_err(|e| crate::error::RunboxError::Runtime(e.to_string()))? {
+        let mut entry = entry.map_err(|e| crate::error::RunboxError::Runtime(e.to_string()))?;
+        let raw_path = entry.path()
+            .map_err(|e| crate::error::RunboxError::Runtime(e.to_string()))?
+            .to_string_lossy()
+            .into_owned();
+
+        // Los tarballs de npm tienen "package/..." como prefijo
+        let rel = raw_path
+            .strip_prefix("package/")
+            .unwrap_or(&raw_path);
+
+        // Saltar archivos muy grandes o binarios que no necesitamos
+        let size = entry.size();
+        if size > 2_000_000 { continue; }
+
+        let vfs_path = format!("/node_modules/{name}/{rel}");
+        let mut content = Vec::with_capacity(size as usize);
+        if entry.read_to_end(&mut content).is_ok() {
+            let _ = vfs.write(&vfs_path, content);
+        }
+    }
 
     Ok(())
 }
@@ -293,7 +310,7 @@ fn pm_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager, pm_name: &s
     }
 
     let mut resolved = 0usize;
-    let failed: Vec<&str> = vec![];
+    let mut failed: Vec<&str> = vec![];
 
     if let Some(pkg) = &pkg {
         write_lock(vfs, pm_name, pkg)?;

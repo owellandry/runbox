@@ -238,9 +238,9 @@ pub fn extract_tgz_to_vfs(bytes: &[u8], pkg_name: &str, vfs: &mut crate::vfs::Vf
     let decoder = GzDecoder::new(Cursor::new(bytes));
     let mut archive = Archive::new(decoder);
 
-    for entry in archive.entries().map_err(|e| RunboxError::Runtime(e.to_string()))? {
-        let mut entry = entry.map_err(|e| RunboxError::Runtime(e.to_string()))?;
-        let path = entry.path().map_err(|e| RunboxError::Runtime(e.to_string()))?;
+    for entry in archive.entries().map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))? {
+        let mut entry = entry.map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))?;
+        let path = entry.path().map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))?;
         let path_str = path.to_string_lossy().into_owned();
 
         // Los tarballs de npm tienen el prefijo "package/"

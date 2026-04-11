@@ -307,6 +307,98 @@ impl RunboxInstance {
         self.terminal.clear();
     }
 
+    // ── HTTP Server (simulated via globalThis.__runbox_servers) ───────────────
+
+    /// Procesa una request HTTP hacia un servidor registrado via http.createServer().
+    /// Llamado desde JS/Service Worker cuando intercepta fetch a localhost:PORT.
+    /// request_json: { port, method, path, headers, body }
+    /// Retorna: { status, headers, body }
+    pub fn http_handle_request(&self, request_json: &str) -> String {
+        #[derive(serde::Deserialize)]
+        struct HttpReq {
+            port:    u16,
+            method:  Option<String>,
+            path:    Option<String>,
+            headers: Option<serde_json::Value>,
+            body:    Option<String>,
+        }
+
+        let req: HttpReq = match serde_json::from_str(request_json) {
+            Ok(r) => r,
+            Err(e) => return serde_json::json!({
+                "status": 400, "headers": {}, "body": format!("invalid request: {e}")
+            }).to_string(),
+        };
+
+        let port    = req.port;
+        let method  = req.method.unwrap_or_else(|| "GET".into());
+        let path    = req.path.unwrap_or_else(|| "/".into());
+        let body    = req.body.unwrap_or_default();
+        let headers = req.headers
+            .map(|h| serde_json::to_string(&h).unwrap_or_else(|_| "{}".into()))
+            .unwrap_or_else(|| "{}".into());
+
+        let script = format!(r#"(function() {{
+            const handler = globalThis.__runbox_servers && globalThis.__runbox_servers[{port}];
+            if (!handler) {{
+                return JSON.stringify({{ status: 404, headers: {{'Content-Type': 'text/plain'}}, body: 'No server registered on port {port}' }});
+            }}
+            const req = {{
+                method: {method_json},
+                url: {path_json},
+                path: {path_json},
+                headers: {headers},
+                body: {body_json},
+                params: {{}},
+                query: {{}},
+            }};
+            const res = {{
+                __status: 200,
+                __headers: {{ 'Content-Type': 'text/html' }},
+                __body: '',
+                writeHead(status, headers) {{
+                    this.__status = status;
+                    if (headers && typeof headers === 'object') Object.assign(this.__headers, headers);
+                }},
+                setHeader(k, v) {{ this.__headers[k] = v; }},
+                getHeader(k) {{ return this.__headers[k]; }},
+                end(data) {{ this.__body = data == null ? '' : String(data); }},
+                send(data) {{ this.__body = data == null ? '' : (typeof data === 'object' ? JSON.stringify(data) : String(data)); }},
+                json(data) {{
+                    this.__headers['Content-Type'] = 'application/json';
+                    this.__body = JSON.stringify(data);
+                }},
+                status(code) {{ this.__status = code; return this; }},
+                type(t) {{ this.__headers['Content-Type'] = t; return this; }},
+            }};
+            try {{
+                handler(req, res);
+            }} catch(e) {{
+                return JSON.stringify({{ status: 500, headers: {{'Content-Type': 'text/plain'}}, body: String(e) }});
+            }}
+            return JSON.stringify({{ status: res.__status, headers: res.__headers, body: res.__body }});
+        }})()"#,
+            port = port,
+            method_json = serde_json::to_string(&method).unwrap(),
+            path_json   = serde_json::to_string(&path).unwrap(),
+            headers     = headers,
+            body_json   = serde_json::to_string(&body).unwrap(),
+        );
+
+        match js_sys::eval(&script) {
+            Ok(val) => val.as_string().unwrap_or_else(|| serde_json::json!({
+                "status": 500, "headers": {}, "body": "handler returned undefined"
+            }).to_string()),
+            Err(e) => {
+                let msg = js_sys::JSON::stringify(&e)
+                    .ok()
+                    .and_then(|s| s.as_string())
+                    .unwrap_or_else(|| "eval error".into());
+                serde_json::json!({ "status": 500, "headers": {}, "body": msg }).to_string()
+            }
+        }
+    }
+
     // ── Service Worker ────────────────────────────────────────────────────────
 
     /// El Service Worker llama esto con la request interceptada (JSON).

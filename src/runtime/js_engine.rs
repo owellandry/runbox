@@ -196,8 +196,253 @@ fn peek_keyword(ctx: &str, first: char, _iter: &mut std::iter::Peekable<std::str
 
 // ── Motor WASM — js_sys::eval ─────────────────────────────────────────────────
 
+/// Convierte ESM import statements a require() para compatibilidad con eval().
+/// `import X from 'Y'`        → `const X = require('Y');`
+/// `import { A, B } from 'Y'` → `const { A, B } = require('Y');`
+/// `import * as X from 'Y'`   → `const X = require('Y');`
+#[cfg(target_arch = "wasm32")]
+fn transform_esm_imports(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("import ") && trimmed.contains(" from ") {
+            // Extraer la parte entre 'import' y 'from'
+            let after_import = &trimmed["import ".len()..];
+            if let Some(from_idx) = after_import.rfind(" from ") {
+                let binding = after_import[..from_idx].trim();
+                let rest    = after_import[from_idx + " from ".len()..].trim();
+                // Extraer el nombre del módulo (entre comillas)
+                let module = rest.trim_matches(';')
+                    .trim_matches('"')
+                    .trim_matches('\'');
+
+                if binding.starts_with("* as ") {
+                    // import * as X from 'y' → const X = require('y')
+                    let name = &binding["* as ".len()..];
+                    out.push_str(&format!("const {name} = require('{module}');\n"));
+                } else if binding.starts_with('{') {
+                    // import { A, B } from 'y' → const { A, B } = require('y')
+                    out.push_str(&format!("const {binding} = require('{module}');\n"));
+                } else if binding.is_empty() {
+                    // import 'y' — side-effect only, ignorar
+                    out.push('\n');
+                } else {
+                    // import X from 'y' → const X = require('y')
+                    out.push_str(&format!("const {binding} = require('{module}');\n"));
+                }
+                continue;
+            }
+        }
+        // export default / export { ... } — ignorar en contexto eval
+        if trimmed.starts_with("export default ") {
+            out.push_str(&trimmed["export default ".len()..]);
+            out.push('\n');
+            continue;
+        }
+        if trimmed.starts_with("export {") || trimmed.starts_with("export const ") || trimmed.starts_with("export function ") || trimmed.starts_with("export class ") {
+            out.push_str(&trimmed["export ".len()..]);
+            out.push('\n');
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 #[cfg(target_arch = "wasm32")]
 fn eval_js(source: &str) -> JsOutput {
+    // Transformar ESM imports → require() antes del eval
+    let source = transform_esm_imports(source);
+    let source = source.as_str();
+
+    // Polyfill de módulos Node.js — persiste en globalThis entre llamadas
+    let polyfill = r#"
+        if (!globalThis.__runbox_servers) globalThis.__runbox_servers = {};
+
+        const __http = {
+            createServer(handler) {
+                return {
+                    _handler: handler,
+                    listen(port, hostname, cb) {
+                        const callback = typeof hostname === 'function' ? hostname : cb;
+                        globalThis.__runbox_servers[port] = handler;
+                        if (typeof callback === 'function') callback();
+                        __logs.push('__RUNBOX_SERVER_READY__:' + port);
+                    }
+                };
+            },
+            STATUS_CODES: { 200: 'OK', 201: 'Created', 404: 'Not Found', 500: 'Internal Server Error' },
+        };
+
+        const __process = {
+            env: { NODE_ENV: 'production' },
+            argv: ['node', 'index.js'],
+            version: 'v18.0.0',
+            platform: 'browser',
+            exit(code) { throw new Error('__EXIT__:' + (code || 0)); },
+            cwd() { return '/'; },
+            stdout: { write(s) { __logs.push(String(s)); } },
+            stderr: { write(s) { __errs.push(String(s)); } },
+        };
+
+        const __path = {
+            join: (...parts) => parts.join('/').replace(/\/+/g, '/'),
+            resolve: (...parts) => '/' + parts.join('/').replace(/\/+/g, '/'),
+            extname: (p) => { const m = p.match(/\.[^.]+$/); return m ? m[0] : ''; },
+            basename: (p, ext) => { const b = p.split('/').pop(); return ext ? b.replace(ext, '') : b; },
+            dirname: (p) => p.split('/').slice(0, -1).join('/') || '/',
+        };
+
+        // ── CJS Module Loader desde VFS ──────────────────────────────────────────
+        // globalThis.__vfs_modules es un mapa path→content pre-cargado por Rust
+        // antes del eval. Permite require() de cualquier paquete npm instalado.
+        if (!globalThis.__vfs_modules) globalThis.__vfs_modules = {};
+        const __module_cache = {};
+
+        function __resolve_module_path(from_dir, dep) {
+            if (!dep.startsWith('.')) return dep;
+            const stack = (from_dir ? from_dir + '/' + dep : dep).split('/');
+            const resolved = [];
+            for (const p of stack) {
+                if (p === '..') resolved.pop();
+                else if (p && p !== '.') resolved.push(p);
+            }
+            return resolved.join('/');
+        }
+
+        function __find_module_file(name) {
+            const vfs = globalThis.__vfs_modules;
+            // Leer main de package.json — preferir CJS (main) sobre ESM (module)
+            const pkgPath = name + '/package.json';
+            if (vfs[pkgPath]) {
+                try {
+                    const pkg = JSON.parse(vfs[pkgPath]);
+                    // Orden: exports.require > main > module (evitar ESM cuando sea posible)
+                    const exportsReq = pkg.exports && (
+                        (pkg.exports['.'] && (pkg.exports['.'].require || pkg.exports['.'].default)) ||
+                        pkg.exports.require
+                    );
+                    const entry = exportsReq || pkg.main || pkg.module || 'index.js';
+                    const resolved = name + '/' + entry.replace(/^\.\//, '');
+                    if (vfs[resolved] !== undefined) return { path: resolved, code: vfs[resolved] };
+                } catch(e) {}
+            }
+            // Fallback: candidatos en orden de prioridad (CJS antes que ESM)
+            const candidates = [
+                name + '/index.js',
+                name + '/index.cjs',
+                name,
+                name + '.js',
+                name + '/index.mjs',
+            ];
+            for (const c of candidates) {
+                if (vfs[c] !== undefined) return { path: c, code: vfs[c] };
+            }
+            return null;
+        }
+
+        // Transforma ESM imports/exports a CJS para poder usar new Function()
+        function __esm_to_cjs(code) {
+            // import X from 'Y'
+            code = code.replace(/^\s*import\s+(\w+)\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+                "const $1 = require('$2');");
+            // import { A, B as C } from 'Y'
+            code = code.replace(/^\s*import\s+(\{[^}]+\})\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+                "const $1 = require('$2');");
+            // import * as X from 'Y'
+            code = code.replace(/^\s*import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
+                "const $1 = require('$2');");
+            // import 'Y' (side-effect)
+            code = code.replace(/^\s*import\s+['"][^'"]+['"]\s*;?/gm, "");
+            // export default X
+            code = code.replace(/^\s*export\s+default\s+/gm, "module.exports = module.exports.default = ");
+            // export { A, B }
+            code = code.replace(/^\s*export\s+\{([^}]+)\}\s*;?/gm, (_, names) => {
+                return names.split(',').map(n => {
+                    const [orig, alias] = n.trim().split(/\s+as\s+/);
+                    const exp = (alias || orig).trim();
+                    return 'exports.' + exp + ' = ' + orig.trim() + ';';
+                }).join(' ');
+            });
+            // export const/let/var/function/class X
+            code = code.replace(/^\s*export\s+(const|let|var)\s+(\w+)/gm,
+                "const $2 = exports.$2 = (exports.$2, ");
+            code = code.replace(/^\s*export\s+(function|class)\s+(\w+)/gm,
+                "exports.$2 = $1 $2");
+            return code;
+        }
+
+        function __vfs_require(name) {
+            if (__module_cache[name] !== undefined) return __module_cache[name];
+            const found = __find_module_file(name);
+            if (!found) throw new Error("Cannot find module '" + name + "'. Did you run npm install?");
+            const { path: modPath, code: rawCode } = found;
+            const mod = { exports: {}, id: modPath };
+            __module_cache[name] = mod.exports; // Pre-cache para evitar ciclos
+            const dir = modPath.split('/').slice(0, -1).join('/');
+            // Transformar ESM a CJS si el archivo usa import/export
+            const needsTransform = /^\s*(import\s|export\s)/m.test(rawCode);
+            const code = needsTransform ? __esm_to_cjs(rawCode) : rawCode;
+            try {
+                (new Function('module', 'exports', 'require', '__dirname', '__filename', code))(
+                    mod, mod.exports,
+                    (dep) => {
+                        const resolved = dep.startsWith('.')
+                            ? __resolve_module_path(dir, dep)
+                            : dep;
+                        // Intentar VFS primero, caer en built-ins si no existe
+                        if (globalThis.__vfs_modules[resolved] !== undefined ||
+                            globalThis.__vfs_modules[resolved + '/index.js'] !== undefined ||
+                            globalThis.__vfs_modules[resolved + '.js'] !== undefined) {
+                            return __vfs_require(resolved);
+                        }
+                        return require(resolved);
+                    },
+                    '/' + dir, '/' + modPath
+                );
+                __module_cache[name] = mod.exports;
+            } catch(e) {
+                delete __module_cache[name];
+                throw new Error("Error loading module '" + name + "': " + e.message);
+            }
+            return mod.exports;
+        }
+
+        const require = (mod) => {
+            if (mod === 'http') return __http;
+            if (mod === 'path') return __path;
+            if (mod === 'os') return { platform: () => 'linux', tmpdir: () => '/tmp', homedir: () => '/home' };
+            if (mod === 'fs') return {
+                readFileSync: () => { throw new Error('fs.readFileSync: not available in WASM sandbox'); },
+                writeFileSync: () => { throw new Error('fs.writeFileSync: not available in WASM sandbox'); },
+                existsSync: () => false,
+            };
+            if (mod === 'url') return {
+                fileURLToPath: (u) => u.replace('file://', ''),
+                pathToFileURL: (p) => 'file://' + p,
+            };
+            // React y amigos — expuestos por el host (DemoPage) en globalThis
+            if (mod === 'react') {
+                const R = globalThis.__runbox_react;
+                if (R) return R;
+            }
+            if (mod === 'react-dom' || mod === 'react-dom/client') {
+                const R = globalThis.__runbox_reactdom;
+                if (R) return R;
+            }
+            if (mod === 'react-dom/server') {
+                const R = globalThis.__runbox_reactdom_server;
+                if (R) return R;
+            }
+            // Cargar desde VFS node_modules (cualquier paquete instalado via npm install)
+            return __vfs_require(mod);
+        };
+        globalThis.require = require;
+        globalThis.process = __process;
+        const process = __process;
+    "#;
+
     // Envolver en IIFE para capturar console.log
     let wrapped = format!(
         r#"(function(){{
@@ -207,14 +452,27 @@ fn eval_js(source: &str) -> JsOutput {
             const __orig_error = console.error.bind(console);
             console.log   = (...a) => {{ __logs.push(a.map(String).join(' ')); __orig_log(...a); }};
             console.error = (...a) => {{ __errs.push(a.map(String).join(' ')); __orig_error(...a); }};
+            {polyfill}
             let __result;
             try {{ {source} }}
-            catch(e) {{ __errs.push(String(e)); }}
+            catch(e) {{
+                const msg = String(e);
+                if (!msg.startsWith('__EXIT__:0')) __errs.push(msg);
+            }}
             finally {{
                 console.log   = __orig_log;
                 console.error = __orig_error;
             }}
-            return JSON.stringify({{ stdout: __logs.join('\n'), stderr: __errs.join('\n') }});
+            // Filtrar señales internas del stdout visible
+            const filteredLogs = __logs.filter(l => !l.startsWith('__RUNBOX_SERVER_READY__:'));
+            const serverPorts = __logs
+                .filter(l => l.startsWith('__RUNBOX_SERVER_READY__:'))
+                .map(l => parseInt(l.split(':')[1], 10));
+            return JSON.stringify({{
+                stdout: filteredLogs.join('\n'),
+                stderr: __errs.join('\n'),
+                server_ports: serverPorts,
+            }});
         }})()"#
     );
 
@@ -222,20 +480,32 @@ fn eval_js(source: &str) -> JsOutput {
         Ok(val) => {
             let json = val.as_string().unwrap_or_default();
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
+                let stderr = v["stderr"].as_str().unwrap_or("").to_string();
+                let server_ports = v["server_ports"].as_array()
+                    .map(|arr| arr.iter().filter_map(|p| p.as_u64()).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let mut stdout = v["stdout"].as_str().unwrap_or("").to_string();
+                for port in &server_ports {
+                    if !stdout.is_empty() { stdout.push('\n'); }
+                    stdout.push_str(&format!("🔥 Server running → http://localhost:{port}"));
+                }
                 JsOutput {
-                    stdout:    v["stdout"].as_str().unwrap_or("").to_string(),
-                    stderr:    v["stderr"].as_str().unwrap_or("").to_string(),
-                    exit_code: if v["stderr"].as_str().unwrap_or("").is_empty() { 0 } else { 1 },
+                    stdout,
+                    stderr:    stderr.clone(),
+                    exit_code: if stderr.is_empty() { 0 } else { 1 },
                 }
             } else {
                 JsOutput { stdout: json, stderr: String::new(), exit_code: 0 }
             }
         }
         Err(e) => {
-            let msg = js_sys::JSON::stringify(&e)
+            // JSON.stringify(Error) siempre devuelve {} — extraer .message directamente
+            let msg = js_sys::Reflect::get(&e, &wasm_bindgen::JsValue::from_str("message"))
                 .ok()
-                .and_then(|s| s.as_string())
-                .unwrap_or_else(|| "eval error".into());
+                .and_then(|v| v.as_string())
+                .filter(|s| !s.is_empty())
+                .or_else(|| e.as_string())
+                .unwrap_or_else(|| "eval error (unknown)".into());
             JsOutput { stdout: String::new(), stderr: msg, exit_code: 1 }
         }
     }

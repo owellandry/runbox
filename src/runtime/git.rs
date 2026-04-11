@@ -519,7 +519,7 @@ fn git_reset(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Ex
 
 // ── Operaciones de red ────────────────────────────────────────────────────────
 
-fn git_clone(cmd: &Command, _vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+fn git_clone(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     let url = match cmd.args.get(1) {
         Some(u) => u.clone(),
         None    => return Ok(err_out("git clone: specify a URL")),
@@ -556,7 +556,7 @@ fn git_clone(cmd: &Command, _vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
 
 fn git_fetch(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     let remote = cmd.args.get(1).map(String::as_str).unwrap_or("origin");
-    let _remote_url = read_remote_url(vfs, remote);
+    let remote_url = read_remote_url(vfs, remote);
 
     let pid = pm.spawn("git", cmd.args.clone());
 
@@ -616,7 +616,7 @@ fn git_push(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
         }
     };
 
-    let _creds = GitCredentials::load(vfs);
+    let creds = GitCredentials::load(vfs);
     let pid = pm.spawn("git", cmd.args.clone());
 
     #[cfg(not(target_arch = "wasm32"))]

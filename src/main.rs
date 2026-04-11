@@ -14,6 +14,7 @@ use runbox::vfs::Vfs;
 
 fn main() {
     // Logs al stderr para no contaminar el canal JSON-RPC de stdout
+    #[cfg(not(target_arch = "wasm32"))]
     tracing_subscriber::fmt()
         .with_writer(io::stderr)
         .with_env_filter(

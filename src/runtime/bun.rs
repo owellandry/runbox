@@ -1,6 +1,8 @@
 /// Runtime de Bun.
 /// Nativo: intenta ejecutar el binario `bun` del sistema usando el VFS materializado.
 /// WASM: delega en el callback JS `runbox_js_eval` provisto por el host.
+#[cfg(target_arch = "wasm32")]
+use js_sys;
 use crate::error::{Result, RunboxError};
 use crate::vfs::Vfs;
 use crate::process::ProcessManager;
@@ -117,6 +119,11 @@ fn spawn_bun(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager, file_path: &
         if let Ok(source) = vfs.read(file_path) {
             let src = String::from_utf8_lossy(source).into_owned();
             let is_ts = file_path.ends_with(".ts") || file_path.ends_with(".tsx");
+
+            // Precargar node_modules del VFS en globalThis para que require() funcione
+            // con cualquier paquete instalado (react-icons, lodash, etc.)
+            preload_vfs_modules(vfs);
+
             let out = super::js_engine::run(&src, is_ts);
             let pid = pm.spawn("bun", cmd.args.clone());
             pm.exit(pid, out.exit_code)?;
@@ -179,6 +186,44 @@ fn collect_tests(vfs: &Vfs, path: &str, out: &mut Vec<String>) {
             }
         } else {
             collect_tests(vfs, &full, out);
+        }
+    }
+}
+
+/// Escanea /node_modules del VFS y serializa todos los archivos JS/JSON
+/// en globalThis.__vfs_modules para que require() los cargue en eval().
+#[cfg(target_arch = "wasm32")]
+fn preload_vfs_modules(vfs: &crate::vfs::Vfs) {
+    let mut modules: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    collect_module_files(vfs, "/node_modules", &mut modules);
+
+    if modules.is_empty() { return; }
+
+    let json = match serde_json::to_string(&modules) {
+        Ok(j) => j,
+        Err(_) => return,
+    };
+
+    let script = format!("globalThis.__vfs_modules = Object.assign(globalThis.__vfs_modules || {{}}, {json});");
+    let _ = js_sys::eval(&script);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn collect_module_files(vfs: &crate::vfs::Vfs, path: &str, out: &mut std::collections::HashMap<String, String>) {
+    let entries = match vfs.list(path) { Ok(e) => e, Err(_) => return };
+    for entry in entries {
+        let full = format!("{path}/{entry}");
+        // Saltar archivos .wasm, .map, binarios, y carpetas con muchos archivos irrelevantes
+        if entry.ends_with(".wasm") || entry.ends_with(".map") || entry.ends_with(".md")
+            || entry.ends_with(".ts") && !entry.ends_with(".d.ts") { continue; }
+
+        if let Ok(bytes) = vfs.read(&full) {
+            if let Ok(content) = std::str::from_utf8(bytes) {
+                let key = full.strip_prefix("/node_modules/").unwrap_or(&full).to_string();
+                out.insert(key, content.to_string());
+            }
+        } else {
+            collect_module_files(vfs, &full, out);
         }
     }
 }
