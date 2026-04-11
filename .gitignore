@@ -1,0 +1,6 @@
+target
+pkg
+node_modules
+test-app/*
+dist
+Cargo.lock

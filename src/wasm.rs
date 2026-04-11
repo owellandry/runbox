@@ -1,0 +1,424 @@
+/// Bindings WASM — expone runbox al browser vía wasm-bindgen.
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub struct RunboxInstance {
+    vfs:       crate::vfs::Vfs,
+    pm:        crate::process::ProcessManager,
+    console:   crate::console::Console,
+    hot:       crate::hotreload::HotReloader,
+    inspector: crate::inspector::InspectorSession,
+    terminal:  crate::terminal::Terminal,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+impl RunboxInstance {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        let mut terminal = crate::terminal::Terminal::default();
+        terminal.write_banner();
+        terminal.write_prompt("/");
+        Self {
+            vfs:       crate::vfs::Vfs::new(),
+            pm:        crate::process::ProcessManager::new(),
+            console:   crate::console::Console::default(),
+            hot:       crate::hotreload::HotReloader::new(80),
+            inspector: crate::inspector::InspectorSession::new(),
+            terminal,
+        }
+    }
+
+    // ── VFS ──────────────────────────────────────────────────────────────────
+
+    pub fn write_file(&mut self, path: &str, content: &[u8]) -> Result<(), JsValue> {
+        self.vfs.write(path, content.to_vec()).js_err()
+    }
+
+    pub fn read_file(&self, path: &str) -> Result<Vec<u8>, JsValue> {
+        self.vfs.read(path).map(|b| b.to_vec()).js_err()
+    }
+
+    pub fn list_dir(&self, path: &str) -> Result<String, JsValue> {
+        let entries = self.vfs.list(path).js_err()?;
+        Ok(serde_json::to_string(&entries).unwrap_or_default())
+    }
+
+    pub fn file_exists(&self, path: &str) -> bool {
+        self.vfs.exists(path)
+    }
+
+    pub fn remove_file(&mut self, path: &str) -> Result<(), JsValue> {
+        self.vfs.remove(path).js_err()
+    }
+
+    // ── Shell ─────────────────────────────────────────────────────────────────
+
+    /// Ejecuta un comando. Retorna JSON: { stdout, stderr, exit_code }
+    pub fn exec(&mut self, line: &str) -> String {
+        use crate::shell::{Command, RuntimeTarget};
+        use crate::runtime::{Runtime, ExecOutput};
+        use crate::runtime::bun::BunRuntime;
+        use crate::runtime::python::PythonRuntime;
+        use crate::runtime::git::GitRuntime;
+        use crate::runtime::npm::PackageManagerRuntime;
+        use crate::runtime::shell_builtins::ShellBuiltins;
+        use crate::error::RunboxError;
+
+        let result: Result<ExecOutput, RunboxError> = (|| {
+            let cmd = Command::parse(line)?;
+            let out = match RuntimeTarget::detect(&cmd) {
+                RuntimeTarget::Bun    => BunRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Python => PythonRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Git    => GitRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Shell  => ShellBuiltins.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Npm    => PackageManagerRuntime::npm().exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Pnpm   => PackageManagerRuntime::pnpm().exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Yarn   => PackageManagerRuntime::yarn().exec(&cmd, &mut self.vfs, &mut self.pm),
+                _ => Err(RunboxError::Shell(format!("{}: command not found", cmd.program))),
+            }?;
+            Ok(out)
+        })();
+
+        match result {
+            Ok(o) => {
+                self.console.ingest_process(0, &o.stdout, &o.stderr);
+                serde_json::json!({
+                    "stdout": String::from_utf8_lossy(&o.stdout),
+                    "stderr": String::from_utf8_lossy(&o.stderr),
+                    "exit_code": o.exit_code,
+                }).to_string()
+            }
+            Err(e) => {
+                self.console.error(e.to_string(), "shell");
+                serde_json::json!({
+                    "stdout": "",
+                    "stderr": e.to_string(),
+                    "exit_code": 1,
+                }).to_string()
+            }
+        }
+    }
+
+    // ── npm WASM install ─────────────────────────────────────────────────────
+
+    /// Retorna JSON con los paquetes del package.json que faltan en node_modules.
+    /// El host JS debe fetchearlos y llamar npm_process_tarball por cada uno.
+    pub fn npm_packages_needed(&self) -> String {
+        use crate::runtime::npm::packages_needed;
+        serde_json::to_string(&packages_needed(&self.vfs)).unwrap_or_default()
+    }
+
+    /// Instala un paquete dado su tarball en bytes.
+    /// Llamado desde JS después de hacer fetch() a registry.npmjs.org.
+    pub fn npm_process_tarball(&mut self, name: &str, version: &str, bytes: &[u8]) -> String {
+        use crate::runtime::npm::process_tarball;
+        match process_tarball(name, version, bytes, &mut self.vfs) {
+            Ok(_)  => {
+                self.console.info(format!("installed {name}@{version}"), "npm");
+                serde_json::json!({ "ok": true, "name": name, "version": version }).to_string()
+            }
+            Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }).to_string(),
+        }
+    }
+
+    // ── Git credentials ───────────────────────────────────────────────────────
+
+    /// Guarda un token de autenticación para git push.
+    /// Equivalente a: git config user.token <token>
+    pub fn git_set_token(&mut self, token: &str) {
+        use crate::runtime::git::GitCredentials;
+        let mut creds = GitCredentials::load(&self.vfs);
+        creds.token = Some(token.to_string());
+        let _ = creds.save(&mut self.vfs);
+    }
+
+    pub fn git_set_user(&mut self, name: &str, email: &str) {
+        use crate::runtime::git::GitCredentials;
+        let mut creds = GitCredentials::load(&self.vfs);
+        creds.username = Some(name.to_string());
+        creds.email    = Some(email.to_string());
+        let _ = creds.save(&mut self.vfs);
+    }
+
+    // ── Console ───────────────────────────────────────────────────────────────
+
+    /// Añade una entrada de log desde JS (ej: console.log del iframe).
+    pub fn console_push(&mut self, level: &str, message: &str, source: &str) -> u64 {
+        use crate::console::LogLevel;
+        let lvl = match level {
+            "info"  => LogLevel::Info,
+            "warn"  => LogLevel::Warn,
+            "error" => LogLevel::Error,
+            "debug" => LogLevel::Debug,
+            _       => LogLevel::Log,
+        };
+        self.console.push(lvl, message, source, None)
+    }
+
+    /// Retorna todas las entradas de consola como JSON.
+    pub fn console_all(&self) -> String {
+        self.console.to_json()
+    }
+
+    /// Retorna entradas nuevas desde un ID dado.
+    pub fn console_since(&self, id: u64) -> String {
+        let entries: Vec<_> = self.console.since(id).into_iter().collect();
+        serde_json::to_string(&entries).unwrap_or_default()
+    }
+
+    pub fn console_clear(&mut self) {
+        self.console.clear();
+    }
+
+    // ── AI tools ──────────────────────────────────────────────────────────────
+
+    /// Retorna las definiciones de tools para el proveedor indicado.
+    /// provider: "openai" | "anthropic" | "gemini" | "raw"
+    pub fn ai_tools(&self, provider: &str) -> String {
+        use crate::ai::tools::{all_tools, to_openai_format, to_anthropic_format, to_gemini_format};
+        let tools = all_tools();
+        let value = match provider {
+            "anthropic" => to_anthropic_format(&tools),
+            "gemini"    => to_gemini_format(&tools),
+            _           => to_openai_format(&tools),   // openai / default
+        };
+        value.to_string()
+    }
+
+    /// Ejecuta una tool call del AI. `call_json` es { name, arguments }.
+    /// Retorna JSON: { name, content, error }
+    pub fn ai_dispatch(&mut self, call_json: &str) -> String {
+        use crate::ai::{tools::ToolCall, skills::dispatch};
+
+        let result = serde_json::from_str::<ToolCall>(call_json).map(|call| {
+            dispatch(&call, &mut self.vfs, &mut self.pm, &mut self.console)
+        });
+
+        match result {
+            Ok(r)  => serde_json::to_string(&r).unwrap_or_default(),
+            Err(e) => serde_json::json!({
+                "name": "unknown",
+                "content": null,
+                "error": e.to_string()
+            }).to_string(),
+        }
+    }
+
+    // ── Sandbox ───────────────────────────────────────────────────────────────
+
+    /// Serializa un SandboxEvent a JSON para enviarlo al browser.
+    pub fn sandbox_event(&self, event_json: &str) -> String {
+        event_json.to_string() // el browser genera el evento, runbox solo lo enruta
+    }
+
+    /// Procesa un SandboxCommand del browser. Retorna JSON de respuesta.
+    pub fn sandbox_command(&mut self, cmd_json: &str) -> String {
+        use crate::sandbox::SandboxCommand;
+
+        let cmd = match serde_json::from_str::<SandboxCommand>(cmd_json) {
+            Ok(c) => c,
+            Err(e) => return serde_json::json!({ "error": e.to_string() }).to_string(),
+        };
+
+        match cmd {
+            SandboxCommand::Exec { line } => self.exec(&line),
+            SandboxCommand::WriteFile { path, content } => {
+                match self.vfs.write(&path, content.into_bytes()) {
+                    Ok(_) => serde_json::json!({ "ok": true }).to_string(),
+                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                }
+            }
+            SandboxCommand::ReadFile { path } => {
+                match self.vfs.read(&path) {
+                    Ok(b) => serde_json::json!({ "content": String::from_utf8_lossy(b) }).to_string(),
+                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                }
+            }
+            SandboxCommand::ListDir { path } => {
+                match self.vfs.list(&path) {
+                    Ok(e) => serde_json::to_string(&e).unwrap_or_default(),
+                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                }
+            }
+            SandboxCommand::Kill { pid } => {
+                match self.pm.kill(pid) {
+                    Ok(_) => serde_json::json!({ "killed": pid }).to_string(),
+                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+                }
+            }
+            // Reload y Fullscreen son manejados por el browser, aquí solo confirmamos
+            SandboxCommand::Reload { hard } => {
+                serde_json::json!({ "action": "reload", "hard": hard }).to_string()
+            }
+            SandboxCommand::Fullscreen { enable } => {
+                serde_json::json!({ "action": "fullscreen", "enable": enable }).to_string()
+            }
+            _ => serde_json::json!({ "error": "not implemented" }).to_string(),
+        }
+    }
+
+    // ── Terminal (xterm.js) ───────────────────────────────────────────────────
+
+    /// Devuelve los chunks de salida pendientes y los limpia. Llamar en cada frame.
+    pub fn terminal_drain(&mut self) -> String {
+        self.terminal.output_drain_json()
+    }
+
+    /// El usuario escribió `data` en el terminal.
+    pub fn terminal_input(&mut self, data: &str, pid: Option<u32>) {
+        self.terminal.input_push(data, pid);
+        // Si es un comando completo (termina en \r o \n), ejecutarlo
+        if data.ends_with('\r') || data.ends_with('\n') {
+            let chunk = self.terminal.input_pop();
+            if let Some(c) = chunk {
+                let line = c.data.trim().to_string();
+                if !line.is_empty() {
+                    let result = self.exec(&line);
+                    // Parsear stdout/stderr y escribir al terminal
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&result) {
+                        let stdout = v["stdout"].as_str().unwrap_or("").to_string();
+                        let stderr = v["stderr"].as_str().unwrap_or("").to_string();
+                        if !stdout.is_empty() {
+                            self.terminal.write_stdout(0, stdout.replace('\n', "\r\n"));
+                        }
+                        if !stderr.is_empty() {
+                            self.terminal.write_stderr(0, stderr.replace('\n', "\r\n"));
+                        }
+                    }
+                    // Nuevo prompt
+                    self.terminal.write_prompt("/");
+                }
+            }
+        }
+    }
+
+    pub fn terminal_resize(&mut self, cols: u16, rows: u16) {
+        self.terminal.resize(cols, rows);
+    }
+
+    pub fn terminal_size(&self) -> String {
+        self.terminal.size_json()
+    }
+
+    pub fn terminal_clear(&mut self) {
+        self.terminal.clear();
+    }
+
+    // ── Service Worker ────────────────────────────────────────────────────────
+
+    /// El Service Worker llama esto con la request interceptada (JSON).
+    /// Retorna la respuesta (JSON) para devolver al iframe.
+    pub fn sw_handle_request(&self, request_json: &str) -> String {
+        use crate::network::{SwRequest, handle_sw_request};
+
+        match serde_json::from_str::<SwRequest>(request_json) {
+            Ok(req) => {
+                let resp = handle_sw_request(&req, &self.vfs);
+                serde_json::to_string(&resp).unwrap_or_default()
+            }
+            Err(e) => serde_json::json!({
+                "id": "",
+                "status": 400,
+                "headers": {},
+                "body": format!("invalid request: {e}"),
+            }).to_string(),
+        }
+    }
+
+    // ── Hot Reload ────────────────────────────────────────────────────────────
+
+    /// Llama esto desde JS después de cada write_file para obtener la acción de recarga.
+    /// `now_ms`: performance.now() del browser.
+    /// Retorna JSON: null | { type: "inject_css"|"hmr"|"full_reload", paths?: [...] }
+    pub fn hot_tick(&mut self, now_ms: u64) -> String {
+        let changes = self.vfs.drain_changes();
+        match self.hot.feed(changes, now_ms) {
+            Some(action) => serde_json::to_string(&action).unwrap_or_default(),
+            None => "null".into(),
+        }
+    }
+
+    /// Fuerza un flush del hot reload ignorando el debounce.
+    pub fn hot_flush(&mut self) -> String {
+        match self.hot.flush_now() {
+            Some(action) => serde_json::to_string(&action).unwrap_or_default(),
+            None => "null".into(),
+        }
+    }
+
+    // ── Inspector DOM ─────────────────────────────────────────────────────────
+
+    /// Activa el inspector (el browser debe empezar a capturar clics/hover).
+    pub fn inspector_activate(&mut self) {
+        self.inspector.activate();
+    }
+
+    pub fn inspector_deactivate(&mut self) {
+        self.inspector.deactivate();
+    }
+
+    pub fn inspector_is_active(&self) -> bool {
+        self.inspector.active
+    }
+
+    /// El browser llama esto con el nodo inspeccionado serializado como JSON.
+    pub fn inspector_set_node(&mut self, node_json: &str) {
+        use crate::inspector::InspectedNode;
+        if let Ok(node) = serde_json::from_str::<InspectedNode>(node_json) {
+            self.inspector.set_node(node);
+        }
+    }
+
+    /// Retorna el nodo actualmente seleccionado como JSON.
+    pub fn inspector_selected(&self) -> String {
+        self.inspector.selected_json()
+    }
+
+    /// Retorna las instrucciones del overlay de highlight como JSON.
+    pub fn inspector_overlay(&self) -> String {
+        self.inspector.overlay_json()
+    }
+
+    /// Retorna los últimos N nodos inspeccionados (historial).
+    pub fn inspector_history(&self, limit: usize) -> String {
+        let history = &self.inspector.history;
+        let start = history.len().saturating_sub(limit);
+        serde_json::to_string(&history[start..]).unwrap_or_default()
+    }
+
+    /// Genera la request de inspección para enviar al browser.
+    /// `target`: "point:x,y" | "selector:.my-class" | "dismiss"
+    pub fn inspector_request(&self, target: &str) -> String {
+        use crate::inspector::InspectRequest;
+        let req = if target == "dismiss" {
+            InspectRequest::Dismiss
+        } else if let Some(coords) = target.strip_prefix("point:") {
+            let mut parts = coords.splitn(2, ',');
+            let x = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            let y = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            InspectRequest::AtPoint { x, y }
+        } else if let Some(sel) = target.strip_prefix("selector:") {
+            InspectRequest::BySelector { selector: sel.to_string() }
+        } else {
+            InspectRequest::Dismiss
+        };
+        serde_json::to_string(&req).unwrap_or_default()
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+#[cfg(target_arch = "wasm32")]
+trait IntoJsError<T> {
+    fn js_err(self) -> Result<T, JsValue>;
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> IntoJsError<T> for crate::error::Result<T> {
+    fn js_err(self) -> Result<T, JsValue> {
+        self.map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
