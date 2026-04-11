@@ -4,7 +4,7 @@
  */
 
 import init, * as runbox from 'runbox';
-import { setupUI, addTerminalLine, clearTerminal, updatePreview } from './ui.js';
+import { setupUI, addTerminalLine, clearTerminal, updatePreview, updateEditorDisplay } from './ui.js';
 import { createProjectFiles, getProjectFiles, getFileContent, updateFileContent } from './project.js';
 import { executeCommand, clearConsole, loadFile, saveFile } from './executor.js';
 
@@ -60,6 +60,9 @@ window.runboxApp = {
     // Métodos de status
     init,
     updateStatus,
+
+    // Métodos de UI
+    updateEditorDisplay,
 
     // Métodos de terminal
     executeCommand(cmd = null) {

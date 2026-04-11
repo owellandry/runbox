@@ -13,14 +13,15 @@ export function createProjectFiles() {
     };
 
     Object.entries(files).forEach(([name, content]) => {
-        addTerminalLine(`📝 Creando ${name}...`, 'info');
+        addTerminalLine(`📝 ${name}`, 'info');
     });
 
     // Guardar en memoria/estado global
     window.runboxApp.projectFiles = files;
     window.runboxApp.currentFile = null;
 
-    addTerminalLine('✅ Archivos del proyecto creados', 'success');
+    addTerminalLine('✅ 4 files created', 'success');
+    addTerminalLine('📦 Dependencies: express@^4.18.0, vite@^5.0.0', 'info');
 }
 
 function createPackageJson() {
@@ -28,12 +29,18 @@ function createPackageJson() {
         name: "runbox-sandbox-app",
         version: "1.0.0",
         type: "module",
+        description: "A web application running in RunBox WebAssembly sandbox",
         scripts: {
             "dev": "python -m http.server 3000",
             "build": "echo 'Building...'",
             "test": "echo 'Running tests...'"
         },
-        dependencies: {}
+        dependencies: {
+            "express": "^4.18.0"
+        },
+        devDependencies: {
+            "vite": "^5.0.0"
+        }
     }, null, 2);
 }
 

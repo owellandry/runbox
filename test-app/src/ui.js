@@ -10,18 +10,18 @@ export function setupUI() {
             <!-- Header -->
             <header class="sandbox-header">
                 <div class="header-content">
-                    <h1>🎁 RunBox Sandbox</h1>
-                    <p class="subtitle">WebAssembly Virtual Environment</p>
+                    <h1>🎁 RunBox Sandbox IDE</h1>
+                    <p class="subtitle">Professional Code Editor with WebAssembly Runtime</p>
                     <div class="status-badge loading">⏳ Inicializando...</div>
                 </div>
             </header>
 
-            <!-- Main Grid -->
+            <!-- Main Grid Layout -->
             <div class="sandbox-grid">
-                <!-- Editor / Files -->
-                <div class="panel editor-panel">
+                <!-- Panel 1: File Browser (Izquierda) -->
+                <div class="panel file-panel">
                     <div class="panel-header">
-                        📝 Archivos del Proyecto
+                        📂 Archivos
                     </div>
                     <div class="panel-content">
                         <div class="file-tree" id="file-tree">
@@ -42,15 +42,35 @@ export function setupUI() {
                                 <span>package.json</span>
                             </div>
                         </div>
+                    </div>
+                </div>
 
-                        <div class="file-editor" id="file-editor" style="display: none;">
-                            <textarea id="editor-content" placeholder="Edita el contenido aquí"></textarea>
-                            <button class="btn-save" onclick="window.runboxApp.saveFile()">💾 Guardar</button>
+                <!-- Panel 2: Code Editor (Centro) -->
+                <div class="panel editor-panel">
+                    <div class="panel-header">
+                        ✏️ Editor
+                    </div>
+                    <div class="panel-content">
+                        <div class="editor-wrapper">
+                            <div class="editor-header">
+                                <div class="editor-filename" id="editor-filename">Sin archivo seleccionado</div>
+                            </div>
+                            <div class="editor-container">
+                                <div class="line-numbers" id="line-numbers"></div>
+                                <textarea id="editor-content" class="code-editor" placeholder="Selecciona un archivo para editar..."></textarea>
+                            </div>
+                            <div class="editor-footer">
+                                <div class="editor-info">
+                                    <span id="char-count">0 caracteres</span>
+                                    <span id="line-count">1 línea</span>
+                                </div>
+                                <button class="btn-save" onclick="window.runboxApp.saveFile()">💾 Guardar</button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Preview -->
+                <!-- Panel 3: Preview (Derecha-Arriba) -->
                 <div class="panel preview-panel">
                     <div class="panel-header">
                         👁️ Preview
@@ -62,11 +82,11 @@ export function setupUI() {
                     </div>
                 </div>
 
-                <!-- Terminal -->
-                <div class="panel terminal-panel full-width">
+                <!-- Panel 4: Terminal (Derecha-Abajo) -->
+                <div class="panel terminal-panel">
                     <div class="panel-header">
-                        💻 Terminal / Console
-                        <button class="btn-clear" onclick="window.runboxApp.clearConsole()">🗑️ Clear</button>
+                        💻 Terminal
+                        <button class="btn-clear" onclick="window.runboxApp.clearConsole()">🗑️</button>
                     </div>
                     <div class="panel-content">
                         <div class="terminal" id="terminal">
@@ -74,22 +94,22 @@ export function setupUI() {
                         </div>
                         <div class="terminal-input-group">
                             <input type="text" id="terminal-input" class="terminal-input"
-                                placeholder="Escribe un comando: npm install, npm run dev, etc..."
+                                placeholder="$ Escribe un comando: ls, cat, npm install, preview..."
                                 onkeypress="window.runboxApp.handleCommand(event)">
-                            <button class="btn-execute" onclick="window.runboxApp.executeCommand()">▶️ Execute</button>
+                            <button class="btn-execute" onclick="window.runboxApp.executeCommand()">▶️</button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Control Panel -->
+            <!-- Control Panel (Abajo) -->
             <div class="control-panel">
                 <div class="controls">
                     <button class="btn-primary" onclick="window.runboxApp.runDev()">
-                        ▶️ Run Dev Server
+                        ▶️ Run Dev
                     </button>
                     <button class="btn-secondary" onclick="window.runboxApp.installDeps()">
-                        📦 Install Dependencies
+                        📦 Install
                     </button>
                     <button class="btn-secondary" onclick="window.runboxApp.buildProject()">
                         🏗️ Build
@@ -109,6 +129,7 @@ export function setupUI() {
 
     // Setup event listeners
     setupFileTree();
+    setupEditor();
     setupTerminal();
 }
 
@@ -116,10 +137,67 @@ function setupFileTree() {
     const fileItems = document.querySelectorAll('.file-item');
     fileItems.forEach(item => {
         item.addEventListener('click', function() {
+            // Remover clase active de todos
+            fileItems.forEach(i => i.classList.remove('active'));
+
+            // Agregar clase active al clickeado
+            this.classList.add('active');
+
             const path = this.dataset.path;
             window.runboxApp.loadFile(path);
         });
     });
+}
+
+function setupEditor() {
+    const editor = document.getElementById('editor-content');
+
+    if (editor) {
+        // Actualizar info en tiempo real
+        editor.addEventListener('input', updateEditorInfo);
+        editor.addEventListener('scroll', syncLineNumberScroll);
+    }
+}
+
+function updateEditorInfo() {
+    const editor = document.getElementById('editor-content');
+    const charCount = document.getElementById('char-count');
+    const lineCount = document.getElementById('line-count');
+
+    if (editor && charCount && lineCount) {
+        const chars = editor.value.length;
+        const lines = editor.value.split('\n').length;
+
+        charCount.textContent = `${chars} caracteres`;
+        lineCount.textContent = `${lines} línea${lines !== 1 ? 's' : ''}`;
+    }
+
+    updateLineNumbers();
+}
+
+function updateLineNumbers() {
+    const editor = document.getElementById('editor-content');
+    const lineNumbers = document.getElementById('line-numbers');
+
+    if (!editor || !lineNumbers) return;
+
+    const lines = editor.value.split('\n').length;
+    let html = '';
+
+    for (let i = 1; i <= lines; i++) {
+        html += i + '\n';
+    }
+
+    lineNumbers.textContent = html;
+}
+
+function syncLineNumberScroll() {
+    const editor = document.getElementById('editor-content');
+    const lineNumbers = document.getElementById('line-numbers');
+
+    if (editor && lineNumbers) {
+        lineNumbers.scrollTop = editor.scrollTop;
+    }
 }
 
 function setupTerminal() {
@@ -151,5 +229,19 @@ export function updatePreview(html) {
     const frame = document.getElementById('preview-frame');
     if (frame) {
         frame.srcdoc = html;
+    }
+}
+
+export function updateEditorDisplay(filename, content) {
+    const editor = document.getElementById('editor-content');
+    const filename_display = document.getElementById('editor-filename');
+
+    if (editor) {
+        editor.value = content;
+        updateEditorInfo();
+    }
+
+    if (filename_display) {
+        filename_display.textContent = filename;
     }
 }

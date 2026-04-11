@@ -10,21 +10,24 @@ export function executeCommand(command) {
 
     addTerminalLine(`$ ${command}`, 'command');
 
-    // Simular ejecución de comandos
-    const [cmd, ...args] = command.split(' ');
+    // Parsear comando - mejor manejo de espacios
+    const parts = command.trim().split(/\s+/);
+    const cmd = parts[0];
+    const args = parts.slice(1);
+
+    // Manejo especial para npm
+    if (cmd === 'npm') {
+        handleNpm(args);
+        return;
+    }
 
     switch (cmd) {
         case 'ls':
-        case 'ls -la':
             handleLs();
             break;
 
         case 'cat':
             handleCat(args[0]);
-            break;
-
-        case 'npm':
-            handleNpm(args);
             break;
 
         case 'echo':
@@ -52,8 +55,8 @@ export function executeCommand(command) {
             break;
 
         default:
-            addTerminalLine(`Comando no reconocido: ${cmd}`, 'error');
-            addTerminalLine('Escribe "help" para ver comandos disponibles', 'info');
+            addTerminalLine(`Command not found: ${cmd}`, 'error');
+            addTerminalLine('Type "help" for available commands', 'info');
     }
 }
 
@@ -96,27 +99,203 @@ function handleNpm(args) {
 
     switch (subcommand) {
         case 'install':
-            addTerminalLine('📦 Installing dependencies...', 'info');
-            addTerminalLine('✅ Dependencies installed', 'success');
+        case 'i':
+        case 'in':
+            // Si hay argumentos después, es npm install <package>
+            if (args.length > 1) {
+                const packages = args.slice(1);
+                handleNpmAdd(packages);
+            } else {
+                handleNpmInstall();
+            }
+            break;
+
+        case 'add':
+        case 'a':
+            const packages = args.slice(1);
+            if (packages.length === 0) {
+                addTerminalLine('❌ npm add: missing package name', 'error');
+                return;
+            }
+            handleNpmAdd(packages);
             break;
 
         case 'run':
             const script = args[1];
+            if (!script) {
+                addTerminalLine('❌ npm run: missing script name', 'error');
+                return;
+            }
             if (script === 'dev') {
                 addTerminalLine('🚀 Starting dev server...', 'info');
                 addTerminalLine('Server running at http://localhost:3000', 'success');
             } else {
-                addTerminalLine(`npm run ${script}`, 'output');
+                addTerminalLine(`📝 Running script: ${script}`, 'info');
             }
             break;
 
         case 'list':
-            addTerminalLine('📦 Project Dependencies:', 'output');
-            addTerminalLine('  (no dependencies yet)', 'output');
+        case 'ls':
+        case 'l':
+            handleNpmList();
+            break;
+
+        case 'remove':
+        case 'rm':
+        case 'r':
+            const toRemove = args.slice(1);
+            if (toRemove.length === 0) {
+                addTerminalLine('❌ npm remove: missing package name', 'error');
+                return;
+            }
+            handleNpmRemove(toRemove);
+            break;
+
+        case 'uninstall':
+        case 'un':
+            const toUninstall = args.slice(1);
+            if (toUninstall.length === 0) {
+                addTerminalLine('❌ npm uninstall: missing package name', 'error');
+                return;
+            }
+            handleNpmRemove(toUninstall);
             break;
 
         default:
-            addTerminalLine(`npm ${subcommand}`, 'output');
+            addTerminalLine(`❌ npm: unknown command '${subcommand}'`, 'error');
+            addTerminalLine('Type "help" for available commands', 'info');
+    }
+}
+
+function handleNpmInstall() {
+    const pkgContent = window.runboxApp.getFileContent('package.json');
+    if (!pkgContent) {
+        addTerminalLine('❌ package.json no encontrado', 'error');
+        return;
+    }
+
+    try {
+        const pkg = JSON.parse(pkgContent);
+        const deps = Object.keys(pkg.dependencies || {});
+        const devDeps = Object.keys(pkg.devDependencies || {});
+        const allDeps = [...deps, ...devDeps];
+
+        if (allDeps.length === 0) {
+            addTerminalLine('📦 up to date — no dependencies found', 'info');
+            return;
+        }
+
+        addTerminalLine('📦 Installing dependencies...', 'info');
+        allDeps.forEach(dep => {
+            addTerminalLine(`  ✅ ${dep}`, 'success');
+        });
+        addTerminalLine(`added ${allDeps.length} packages`, 'success');
+    } catch (e) {
+        addTerminalLine(`❌ Error parsing package.json: ${e.message}`, 'error');
+    }
+}
+
+function handleNpmAdd(packages) {
+    if (packages.length === 0) {
+        addTerminalLine('❌ npm add: missing package name', 'error');
+        return;
+    }
+
+    const pkgContent = window.runboxApp.getFileContent('package.json');
+    if (!pkgContent) {
+        addTerminalLine('❌ package.json no encontrado', 'error');
+        return;
+    }
+
+    try {
+        const pkg = JSON.parse(pkgContent);
+        pkg.dependencies = pkg.dependencies || {};
+
+        packages.forEach(pkg_name => {
+            pkg.dependencies[pkg_name] = '*';
+            addTerminalLine(`  ✅ ${pkg_name} added`, 'success');
+        });
+
+        const updated = JSON.stringify(pkg, null, 2);
+        window.runboxApp.updateFileContent('package.json', updated);
+        addTerminalLine(`added ${packages.length} packages`, 'success');
+    } catch (e) {
+        addTerminalLine(`❌ Error: ${e.message}`, 'error');
+    }
+}
+
+function handleNpmList() {
+    const pkgContent = window.runboxApp.getFileContent('package.json');
+    if (!pkgContent) {
+        addTerminalLine('❌ package.json no encontrado', 'error');
+        return;
+    }
+
+    try {
+        const pkg = JSON.parse(pkgContent);
+        const deps = pkg.dependencies || {};
+        const devDeps = pkg.devDependencies || {};
+
+        if (Object.keys(deps).length === 0 && Object.keys(devDeps).length === 0) {
+            addTerminalLine('📦 Project Dependencies:', 'output');
+            addTerminalLine('  (no dependencies)', 'output');
+            return;
+        }
+
+        addTerminalLine('📦 Project Dependencies:', 'output');
+
+        if (Object.keys(deps).length > 0) {
+            addTerminalLine('  Production:', 'output');
+            Object.keys(deps).forEach(name => {
+                addTerminalLine(`    ├─ ${name}@${deps[name]}`, 'output');
+            });
+        }
+
+        if (Object.keys(devDeps).length > 0) {
+            addTerminalLine('  Development:', 'output');
+            Object.keys(devDeps).forEach(name => {
+                addTerminalLine(`    ├─ ${name}@${devDeps[name]}`, 'output');
+            });
+        }
+    } catch (e) {
+        addTerminalLine(`❌ Error parsing package.json: ${e.message}`, 'error');
+    }
+}
+
+function handleNpmRemove(packages) {
+    if (packages.length === 0) {
+        addTerminalLine('❌ npm remove: missing package name', 'error');
+        return;
+    }
+
+    const pkgContent = window.runboxApp.getFileContent('package.json');
+    if (!pkgContent) {
+        addTerminalLine('❌ package.json no encontrado', 'error');
+        return;
+    }
+
+    try {
+        const pkg = JSON.parse(pkgContent);
+        pkg.dependencies = pkg.dependencies || {};
+        pkg.devDependencies = pkg.devDependencies || {};
+
+        packages.forEach(pkg_name => {
+            if (pkg.dependencies[pkg_name]) {
+                delete pkg.dependencies[pkg_name];
+                addTerminalLine(`  ✅ ${pkg_name} removed`, 'success');
+            } else if (pkg.devDependencies[pkg_name]) {
+                delete pkg.devDependencies[pkg_name];
+                addTerminalLine(`  ✅ ${pkg_name} removed`, 'success');
+            } else {
+                addTerminalLine(`  ⚠️  ${pkg_name} not found`, 'info');
+            }
+        });
+
+        const updated = JSON.stringify(pkg, null, 2);
+        window.runboxApp.updateFileContent('package.json', updated);
+        addTerminalLine(`removed packages`, 'success');
+    } catch (e) {
+        addTerminalLine(`❌ Error: ${e.message}`, 'error');
     }
 }
 
@@ -125,19 +304,28 @@ function handleHelp() {
         ['ls', 'Lista los archivos del proyecto'],
         ['cat <file>', 'Muestra el contenido de un archivo'],
         ['echo <text>', 'Imprime texto'],
-        ['npm install', 'Instala dependencias'],
+        ['', ''],
+        ['npm install', 'Instala todas las dependencias'],
+        ['npm add <pkg>', 'Agrega un paquete (ej: npm add express)'],
+        ['npm list', 'Lista todas las dependencias'],
+        ['npm remove <pkg>', 'Elimina un paquete'],
         ['npm run dev', 'Inicia servidor de desarrollo'],
-        ['npm list', 'Lista dependencias'],
+        ['', ''],
         ['preview', 'Renderiza la app en el preview'],
-        ['run-dev', 'Ejecuta todo el pipeline de desarrollo'],
+        ['run-dev', 'Ejecuta todo el pipeline'],
+        ['', ''],
         ['pwd', 'Muestra el directorio actual'],
-        ['clear', 'Limpia la consola'],
+        ['clear', 'Limpia la terminal'],
         ['help', 'Muestra esta ayuda'],
     ];
 
     addTerminalLine('📚 Comandos disponibles:', 'info');
     commands.forEach(([cmd, desc]) => {
-        addTerminalLine(`  ${cmd.padEnd(20)} - ${desc}`, 'output');
+        if (cmd === '') {
+            addTerminalLine('', 'output');
+        } else {
+            addTerminalLine(`  ${cmd.padEnd(25)} - ${desc}`, 'output');
+        }
     });
 }
 
@@ -198,13 +386,11 @@ export function loadFile(filename) {
         return;
     }
 
-    const editor = document.getElementById('file-editor');
-    const editorContent = document.getElementById('editor-content');
+    window.runboxApp.currentFile = filename;
+    window.runboxApp.updateEditorDisplay(filename, content);
 
-    if (editor && editorContent) {
-        editorContent.value = content;
-        editor.style.display = 'block';
-        window.runboxApp.currentFile = filename;
+    const editorContent = document.getElementById('editor-content');
+    if (editorContent) {
         editorContent.focus();
     }
 }
@@ -222,4 +408,9 @@ export function saveFile() {
 
     window.runboxApp.projectFiles[currentFile] = newContent;
     addTerminalLine(`💾 ${currentFile} guardado`, 'success');
+
+    // Hot reload: actualizar preview si el archivo afecta el rendering
+    if (['index.html', 'style.css', 'app.js'].includes(currentFile)) {
+        setTimeout(() => handlePreview(), 100);
+    }
 }
