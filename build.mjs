@@ -45,7 +45,8 @@ template.version = version;
 writeFileSync('pkg/package.json', JSON.stringify(template, null, 2) + '\n');
 console.log(`✅ pkg/package.json → runboxjs@${version}`);
 
-// ── Publish opcional ──────────────────────────────────────────────────────────
+// ── Publish opcional (local, sin provenance) ─────────────────────────────────
+// En CI se usa: npm publish --provenance --access public
 if (process.argv.includes('--publish')) {
   console.log('🚀 Publishing to npm...');
   execSync('npm publish --access public', { stdio: 'inherit', cwd: 'pkg' });
