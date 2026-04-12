@@ -1,23 +1,23 @@
+use crate::error::{Result, RunboxError};
 /// Capa de red — HTTP nativo (reqwest) y protocolo Service Worker para WASM.
 /// Centraliza toda la I/O de red del sandbox.
 use serde::{Deserialize, Serialize};
-use crate::error::{Result, RunboxError};
 
 // ── Tipos comunes ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpRequest {
-    pub method:  String,
-    pub url:     String,
+    pub method: String,
+    pub url: String,
     pub headers: std::collections::HashMap<String, String>,
-    pub body:    Option<Vec<u8>>,
+    pub body: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpResponse {
-    pub status:  u16,
+    pub status: u16,
     pub headers: std::collections::HashMap<String, String>,
-    pub body:    Vec<u8>,
+    pub body: Vec<u8>,
 }
 
 impl HttpResponse {
@@ -35,52 +35,66 @@ impl HttpResponse {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn http_get(url: &str) -> Result<HttpResponse> {
-    let resp = reqwest::blocking::get(url).map_err(|e| {
-        RunboxError::Runtime(format!("HTTP GET {url}: {e}"))
-    })?;
+    let resp = reqwest::blocking::get(url)
+        .map_err(|e| RunboxError::Runtime(format!("HTTP GET {url}: {e}")))?;
 
     let status = resp.status().as_u16();
-    let headers = resp.headers().iter()
+    let headers = resp
+        .headers()
+        .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
-    let body = resp.bytes().map_err(|e| {
-        RunboxError::Runtime(format!("read response body: {e}"))
-    })?.to_vec();
+    let body = resp
+        .bytes()
+        .map_err(|e| RunboxError::Runtime(format!("read response body: {e}")))?
+        .to_vec();
 
-    Ok(HttpResponse { status, headers, body })
+    Ok(HttpResponse {
+        status,
+        headers,
+        body,
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn http_post(url: &str, content_type: &str, body: Vec<u8>) -> Result<HttpResponse> {
     let client = reqwest::blocking::Client::new();
-    let resp = client.post(url)
+    let resp = client
+        .post(url)
         .header("Content-Type", content_type)
         .body(body)
         .send()
         .map_err(|e| RunboxError::Runtime(format!("HTTP POST {url}: {e}")))?;
 
     let status = resp.status().as_u16();
-    let headers = resp.headers().iter()
+    let headers = resp
+        .headers()
+        .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
-    let body = resp.bytes().map_err(|e| {
-        RunboxError::Runtime(format!("read response body: {e}"))
-    })?.to_vec();
+    let body = resp
+        .bytes()
+        .map_err(|e| RunboxError::Runtime(format!("read response body: {e}")))?
+        .to_vec();
 
-    Ok(HttpResponse { status, headers, body })
+    Ok(HttpResponse {
+        status,
+        headers,
+        body,
+    })
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn http_get(_url: &str) -> Result<HttpResponse> {
     Err(RunboxError::Runtime(
-        "network not available in WASM — use service_worker_fetch()".into()
+        "network not available in WASM — use service_worker_fetch()".into(),
     ))
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn http_post(_url: &str, _content_type: &str, _body: Vec<u8>) -> Result<HttpResponse> {
     Err(RunboxError::Runtime(
-        "network not available in WASM — use service_worker_fetch()".into()
+        "network not available in WASM — use service_worker_fetch()".into(),
     ))
 }
 
@@ -100,36 +114,51 @@ pub fn http_post(_url: &str, _content_type: &str, _body: Vec<u8>) -> Result<Http
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwRequest {
     /// ID único para correlacionar request/response.
-    pub id:      String,
-    pub method:  String,
-    pub url:     String,
+    pub id: String,
+    pub method: String,
+    pub url: String,
     pub headers: std::collections::HashMap<String, String>,
     #[serde(default)]
-    pub body:    Option<String>,
+    pub body: Option<String>,
 }
 
 /// Respuesta que RunBox devuelve al Service Worker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwResponse {
-    pub id:      String,
-    pub status:  u16,
+    pub id: String,
+    pub status: u16,
     pub headers: std::collections::HashMap<String, String>,
-    pub body:    String,
+    pub body: String,
 }
 
 impl SwResponse {
     pub fn ok(id: impl Into<String>, body: impl Into<String>, content_type: &str) -> Self {
         let mut headers = std::collections::HashMap::new();
         headers.insert("content-type".into(), content_type.into());
-        Self { id: id.into(), status: 200, headers, body: body.into() }
+        Self {
+            id: id.into(),
+            status: 200,
+            headers,
+            body: body.into(),
+        }
     }
 
     pub fn not_found(id: impl Into<String>) -> Self {
-        Self { id: id.into(), status: 404, headers: Default::default(), body: "Not Found".into() }
+        Self {
+            id: id.into(),
+            status: 404,
+            headers: Default::default(),
+            body: "Not Found".into(),
+        }
     }
 
     pub fn error(id: impl Into<String>, msg: impl Into<String>) -> Self {
-        Self { id: id.into(), status: 500, headers: Default::default(), body: msg.into() }
+        Self {
+            id: id.into(),
+            status: 500,
+            headers: Default::default(),
+            body: msg.into(),
+        }
     }
 }
 
@@ -167,16 +196,16 @@ fn extract_path(url: &str) -> String {
 
 fn mime_for_path(path: &str) -> &'static str {
     match path.rsplit('.').next().unwrap_or("") {
-        "html" | "htm"  => "text/html; charset=utf-8",
-        "js" | "mjs"    => "text/javascript",
-        "ts" | "tsx"    => "text/typescript",
-        "css"           => "text/css",
-        "json"          => "application/json",
-        "svg"           => "image/svg+xml",
-        "png"           => "image/png",
-        "jpg" | "jpeg"  => "image/jpeg",
-        "woff2"         => "font/woff2",
-        _               => "application/octet-stream",
+        "html" | "htm" => "text/html; charset=utf-8",
+        "js" | "mjs" => "text/javascript",
+        "ts" | "tsx" => "text/typescript",
+        "css" => "text/css",
+        "json" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "woff2" => "font/woff2",
+        _ => "application/octet-stream",
     }
 }
 
@@ -190,7 +219,11 @@ pub fn materialize_vfs(vfs: &crate::vfs::Vfs, root: &std::path::Path) -> std::io
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn materialize_dir(vfs: &crate::vfs::Vfs, vfs_path: &str, fs_path: &std::path::Path) -> std::io::Result<()> {
+fn materialize_dir(
+    vfs: &crate::vfs::Vfs,
+    vfs_path: &str,
+    fs_path: &std::path::Path,
+) -> std::io::Result<()> {
     let entries = vfs.list(vfs_path).unwrap_or_default();
     for entry in entries {
         let child_vfs = if vfs_path == "/" {
@@ -218,38 +251,47 @@ fn materialize_dir(vfs: &crate::vfs::Vfs, vfs_path: &str, fs_path: &std::path::P
 #[cfg(not(target_arch = "wasm32"))]
 pub fn extract_tgz(bytes: &[u8], dest: &std::path::Path) -> Result<()> {
     use flate2::read::GzDecoder;
-    use tar::Archive;
     use std::io::Cursor;
+    use tar::Archive;
 
     let decoder = GzDecoder::new(Cursor::new(bytes));
     let mut archive = Archive::new(decoder);
-    archive.unpack(dest).map_err(|e| {
-        RunboxError::Runtime(format!("tarball extraction failed: {e}"))
-    })
+    archive
+        .unpack(dest)
+        .map_err(|e| RunboxError::Runtime(format!("tarball extraction failed: {e}")))
 }
 
 /// Extrae un tarball de npm al VFS bajo `/node_modules/<pkg>/`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn extract_tgz_to_vfs(bytes: &[u8], pkg_name: &str, vfs: &mut crate::vfs::Vfs) -> Result<()> {
     use flate2::read::GzDecoder;
-    use tar::Archive;
     use std::io::{Cursor, Read};
+    use tar::Archive;
 
     let decoder = GzDecoder::new(Cursor::new(bytes));
     let mut archive = Archive::new(decoder);
 
-    for entry in archive.entries().map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))? {
+    for entry in archive
+        .entries()
+        .map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))?
+    {
         let mut entry = entry.map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))?;
-        let path = entry.path().map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))?;
+        let path = entry
+            .path()
+            .map_err(|e: std::io::Error| RunboxError::Runtime(e.to_string()))?;
         let path_str = path.to_string_lossy().into_owned();
 
         // Los tarballs de npm tienen el prefijo "package/"
         let rel = path_str.strip_prefix("package/").unwrap_or(&path_str);
-        if rel.is_empty() { continue; }
+        if rel.is_empty() {
+            continue;
+        }
 
         let vfs_path = format!("/node_modules/{pkg_name}/{rel}");
         let mut content = Vec::new();
-        entry.read_to_end(&mut content).map_err(|e| RunboxError::Runtime(e.to_string()))?;
+        entry
+            .read_to_end(&mut content)
+            .map_err(|e| RunboxError::Runtime(e.to_string()))?;
         vfs.write(&vfs_path, content)?;
     }
     Ok(())

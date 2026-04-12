@@ -1,21 +1,23 @@
+use super::{ExecOutput, Runtime};
 /// Runtime de Python.
 /// Nativo: intenta ejecutar `python3` / `python` del sistema.
 /// WASM: delega en Pyodide vía callback JS.
 use crate::error::{Result, RunboxError};
-use crate::vfs::Vfs;
 use crate::process::ProcessManager;
 use crate::shell::Command;
-use super::{ExecOutput, Runtime};
+use crate::vfs::Vfs;
 
 pub struct PythonRuntime;
 
 impl Runtime for PythonRuntime {
-    fn name(&self) -> &'static str { "python" }
+    fn name(&self) -> &'static str {
+        "python"
+    }
 
     fn exec(&self, cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
         match cmd.program.as_str() {
             "pip" | "pip3" => pip_exec(cmd, vfs, pm),
-            _              => python_exec(cmd, vfs, pm),
+            _ => python_exec(cmd, vfs, pm),
         }
     }
 }
@@ -30,10 +32,18 @@ fn python_exec(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<
 
     let file = match cmd.args.first() {
         Some(f) => f.clone(),
-        None    => return Ok(ok_out("Python 3.x (RunBox)\nType -c \"code\" to run inline.\n")),
+        None => {
+            return Ok(ok_out(
+                "Python 3.x (RunBox)\nType -c \"code\" to run inline.\n",
+            ));
+        }
     };
 
-    let path = if file.starts_with('/') { file.clone() } else { format!("/{file}") };
+    let path = if file.starts_with('/') {
+        file.clone()
+    } else {
+        format!("/{file}")
+    };
     if !vfs.exists(&path) {
         return Err(RunboxError::NotFound(path));
     }
@@ -46,6 +56,9 @@ fn python_inline(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Resul
 }
 
 fn spawn_python(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+    #[cfg(target_arch = "wasm32")]
+    let _ = vfs;
+
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(output) = try_spawn_system_python(cmd, vfs) {
@@ -68,9 +81,9 @@ fn spawn_python(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result
 
 #[cfg(not(target_arch = "wasm32"))]
 fn try_spawn_system_python(cmd: &Command, vfs: &mut Vfs) -> std::io::Result<ExecOutput> {
+    use crate::network::materialize_vfs;
     use std::process::Command as SysCmd;
     use tempfile::TempDir;
-    use crate::network::materialize_vfs;
 
     let tmp = TempDir::new()?;
     materialize_vfs(vfs, tmp.path()).unwrap_or_default();
@@ -88,8 +101,8 @@ fn try_spawn_system_python(cmd: &Command, vfs: &mut Vfs) -> std::io::Result<Exec
         .output()?;
 
     Ok(ExecOutput {
-        stdout:    output.stdout,
-        stderr:    output.stderr,
+        stdout: output.stdout,
+        stderr: output.stderr,
         exit_code: output.status.code().unwrap_or(1),
     })
 }
@@ -101,15 +114,19 @@ fn pip_exec(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
 
     match sub {
         "install" => pip_install(cmd, vfs, pm),
-        "list"    => pip_list(vfs, pm, cmd),
-        "show"    => pip_show(cmd, vfs, pm),
-        "freeze"  => pip_freeze(vfs, pm, cmd),
-        _         => Err(RunboxError::Runtime(format!("pip: unknown subcommand '{sub}'"))),
+        "list" => pip_list(vfs, pm, cmd),
+        "show" => pip_show(cmd, vfs, pm),
+        "freeze" => pip_freeze(vfs, pm, cmd),
+        _ => Err(RunboxError::Runtime(format!(
+            "pip: unknown subcommand '{sub}'"
+        ))),
     }
 }
 
 fn pip_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
-    let packages: Vec<String> = cmd.args.iter()
+    let packages: Vec<String> = cmd
+        .args
+        .iter()
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .cloned()
@@ -120,14 +137,17 @@ fn pip_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<
         if cmd.args.iter().any(|a| a == "-r") {
             return pip_install_requirements(cmd, vfs, pm);
         }
-        return Err(RunboxError::Runtime("pip install: specify package(s)".into()));
+        return Err(RunboxError::Runtime(
+            "pip install: specify package(s)".into(),
+        ));
     }
 
     let pid = pm.spawn("pip", cmd.args.clone());
 
     // Registrar en site-packages del VFS
     for pkg in &packages {
-        let (name, ver) = pkg.split_once("==")
+        let (name, ver) = pkg
+            .split_once("==")
             .map(|(n, v)| (n, v.to_string()))
             .unwrap_or((pkg.as_str(), "latest".to_string()));
         vfs.write(
@@ -143,26 +163,41 @@ fn pip_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<
     )))
 }
 
-fn pip_install_requirements(cmd: &Command, vfs: &Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
-    let req_file = cmd.args.iter()
+fn pip_install_requirements(
+    cmd: &Command,
+    vfs: &Vfs,
+    pm: &mut ProcessManager,
+) -> Result<ExecOutput> {
+    let req_file = cmd
+        .args
+        .iter()
         .skip_while(|a| *a != "-r")
         .nth(1)
         .map(String::as_str)
         .unwrap_or("requirements.txt");
 
-    let path = if req_file.starts_with('/') { req_file.to_string() } else { format!("/{req_file}") };
-    let content = vfs.read(&path)
+    let path = if req_file.starts_with('/') {
+        req_file.to_string()
+    } else {
+        format!("/{req_file}")
+    };
+    let content = vfs
+        .read(&path)
         .map(|b| String::from_utf8_lossy(b).into_owned())
         .unwrap_or_default();
 
-    let packages: Vec<&str> = content.lines()
+    let packages: Vec<&str> = content
+        .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
 
     let pid = pm.spawn("pip", cmd.args.clone());
     pm.exit(pid, 0)?;
-    Ok(ok_out(format!("Installing {} packages from {req_file}...\nDone.\n", packages.len())))
+    Ok(ok_out(format!(
+        "Installing {} packages from {req_file}...\nDone.\n",
+        packages.len()
+    )))
 }
 
 fn pip_list(vfs: &Vfs, pm: &mut ProcessManager, cmd: &Command) -> Result<ExecOutput> {
@@ -172,7 +207,8 @@ fn pip_list(vfs: &Vfs, pm: &mut ProcessManager, cmd: &Command) -> Result<ExecOut
     if packages.is_empty() {
         return Ok(ok_out("Package    Version\n---------- -------\n"));
     }
-    let rows = packages.iter()
+    let rows = packages
+        .iter()
         .filter(|p| p.ends_with(".dist-info"))
         .map(|p| {
             let name = p.replace(".dist-info", "");
@@ -180,11 +216,16 @@ fn pip_list(vfs: &Vfs, pm: &mut ProcessManager, cmd: &Command) -> Result<ExecOut
         })
         .collect::<Vec<_>>()
         .join("\n");
-    Ok(ok_out(format!("Package    Version\n---------- -------\n{rows}\n")))
+    Ok(ok_out(format!(
+        "Package    Version\n---------- -------\n{rows}\n"
+    )))
 }
 
 fn pip_show(cmd: &Command, vfs: &Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
-    let pkg = cmd.args.get(1).ok_or_else(|| RunboxError::Runtime("pip show: specify a package".into()))?;
+    let pkg = cmd
+        .args
+        .get(1)
+        .ok_or_else(|| RunboxError::Runtime("pip show: specify a package".into()))?;
     let pid = pm.spawn("pip", cmd.args.clone());
     pm.exit(pid, 0)?;
     if let Ok(meta) = vfs.read(&format!("/site-packages/{pkg}-latest.dist-info/METADATA")) {
@@ -202,7 +243,8 @@ fn pip_freeze(vfs: &Vfs, pm: &mut ProcessManager, cmd: &Command) -> Result<ExecO
     let packages = vfs.list("/site-packages").unwrap_or_default();
     let pid = pm.spawn("pip", cmd.args.clone());
     pm.exit(pid, 0)?;
-    let freeze = packages.iter()
+    let freeze = packages
+        .iter()
         .filter(|p| p.ends_with(".dist-info"))
         .map(|p| p.replace(".dist-info", "").replace('-', "=="))
         .collect::<Vec<_>>()
@@ -213,5 +255,9 @@ fn pip_freeze(vfs: &Vfs, pm: &mut ProcessManager, cmd: &Command) -> Result<ExecO
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn ok_out(s: impl Into<String>) -> ExecOutput {
-    ExecOutput { stdout: s.into().into_bytes(), stderr: vec![], exit_code: 0 }
+    ExecOutput {
+        stdout: s.into().into_bytes(),
+        stderr: vec![],
+        exit_code: 0,
+    }
 }

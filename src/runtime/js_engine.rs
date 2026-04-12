@@ -10,8 +10,8 @@
 
 #[derive(Debug)]
 pub struct JsOutput {
-    pub stdout:    String,
-    pub stderr:    String,
+    pub stdout: String,
+    pub stderr: String,
     pub exit_code: i32,
 }
 
@@ -21,8 +21,14 @@ pub struct JsOutput {
 pub fn run(source: &str, is_typescript: bool) -> JsOutput {
     let js = if is_typescript {
         match strip_typescript(source) {
-            Ok(js)  => js,
-            Err(e)  => return JsOutput { stdout: String::new(), stderr: e, exit_code: 1 },
+            Ok(js) => js,
+            Err(e) => {
+                return JsOutput {
+                    stdout: String::new(),
+                    stderr: e,
+                    exit_code: 1,
+                };
+            }
         }
     } else {
         source.to_string()
@@ -38,8 +44,8 @@ pub fn run(source: &str, is_typescript: bool) -> JsOutput {
 // access modifiers, non-null assertions, satisfies.
 
 pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
-    let mut out    = String::with_capacity(ts.len());
-    let mut str_ch = '"';      // delimitador de la string actual
+    let mut out = String::with_capacity(ts.len());
+    let mut str_ch = '"'; // delimitador de la string actual
 
     // Línea por línea primero para eliminar declaraciones de nivel superior
     let lines: Vec<&str> = ts.lines().collect();
@@ -56,7 +62,9 @@ pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
                 d += l.chars().filter(|&c| c == '{').count() as i32;
                 d -= l.chars().filter(|&c| c == '}').count() as i32;
                 i += 1;
-                if d <= 0 || i >= lines.len() { break; }
+                if d <= 0 || i >= lines.len() {
+                    break;
+                }
             }
             continue;
         }
@@ -83,7 +91,7 @@ pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
 
     // Segunda pasada: eliminar anotaciones inline de tipos
     let mut result = String::with_capacity(out.len());
-    let mut iter   = out.chars().peekable();
+    let mut iter = out.chars().peekable();
     let mut in_str = false;
 
     while let Some(c) = iter.next() {
@@ -97,10 +105,14 @@ pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
         if in_str {
             if c == '\\' {
                 result.push(c);
-                if let Some(next) = iter.next() { result.push(next); }
+                if let Some(next) = iter.next() {
+                    result.push(next);
+                }
                 continue;
             }
-            if c == str_ch { in_str = false; }
+            if c == str_ch {
+                in_str = false;
+            }
             result.push(c);
             continue;
         }
@@ -142,7 +154,10 @@ pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
         // `!` non-null assertion al final de expresión
         if c == '!' {
             let next = iter.peek().copied();
-            if matches!(next, Some(')') | Some('.') | Some('[') | Some(';') | Some(',')) {
+            if matches!(
+                next,
+                Some(')') | Some('.') | Some('[') | Some(';') | Some(',')
+            ) {
                 // Eliminar el !
                 continue;
             }
@@ -151,7 +166,10 @@ pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
         // Access modifiers al inicio de class member
         if result.ends_with('\n') || result.ends_with('{') || result.ends_with(';') {
             let kw = peek_keyword(&result, c, &mut iter);
-            if matches!(kw.as_str(), "public" | "private" | "protected" | "readonly" | "abstract" | "override") {
+            if matches!(
+                kw.as_str(),
+                "public" | "private" | "protected" | "readonly" | "abstract" | "override"
+            ) {
                 // Saltar la keyword y el espacio siguiente
                 skip_word(&mut iter);
                 continue;
@@ -168,27 +186,46 @@ fn skip_type_expr(iter: &mut std::iter::Peekable<std::str::Chars<'_>>) {
     let mut depth = 0i32;
     while let Some(&c) = iter.peek() {
         match c {
-            '<' | '(' | '[' | '{' => { depth += 1; iter.next(); }
+            '<' | '(' | '[' | '{' => {
+                depth += 1;
+                iter.next();
+            }
             '>' | ')' | ']' | '}' => {
-                if depth > 0 { depth -= 1; iter.next(); }
-                else { break; }
+                if depth > 0 {
+                    depth -= 1;
+                    iter.next();
+                } else {
+                    break;
+                }
             }
             ',' | ';' | '\n' if depth == 0 => break,
             '=' if depth == 0 => break,
-            _ => { iter.next(); }
+            _ => {
+                iter.next();
+            }
         }
     }
 }
 
 fn skip_word(iter: &mut std::iter::Peekable<std::str::Chars<'_>>) {
     while let Some(&c) = iter.peek() {
-        if c.is_alphanumeric() || c == '_' { iter.next(); } else { break; }
+        if c.is_alphanumeric() || c == '_' {
+            iter.next();
+        } else {
+            break;
+        }
     }
     // Saltar espacio siguiente
-    if iter.peek() == Some(&' ') { iter.next(); }
+    if iter.peek() == Some(&' ') {
+        iter.next();
+    }
 }
 
-fn peek_keyword(ctx: &str, first: char, _iter: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+fn peek_keyword(
+    ctx: &str,
+    first: char,
+    _iter: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> String {
     // Heurística muy simple: mirar el contexto
     let _ = ctx;
     first.to_string()
@@ -210,11 +247,9 @@ fn transform_esm_imports(source: &str) -> String {
             let after_import = &trimmed["import ".len()..];
             if let Some(from_idx) = after_import.rfind(" from ") {
                 let binding = after_import[..from_idx].trim();
-                let rest    = after_import[from_idx + " from ".len()..].trim();
+                let rest = after_import[from_idx + " from ".len()..].trim();
                 // Extraer el nombre del módulo (entre comillas)
-                let module = rest.trim_matches(';')
-                    .trim_matches('"')
-                    .trim_matches('\'');
+                let module = rest.trim_matches(';').trim_matches('"').trim_matches('\'');
 
                 if binding.starts_with("* as ") {
                     // import * as X from 'y' → const X = require('y')
@@ -239,7 +274,11 @@ fn transform_esm_imports(source: &str) -> String {
             out.push('\n');
             continue;
         }
-        if trimmed.starts_with("export {") || trimmed.starts_with("export const ") || trimmed.starts_with("export function ") || trimmed.starts_with("export class ") {
+        if trimmed.starts_with("export {")
+            || trimmed.starts_with("export const ")
+            || trimmed.starts_with("export function ")
+            || trimmed.starts_with("export class ")
+        {
             out.push_str(&trimmed["export ".len()..]);
             out.push('\n');
             continue;
@@ -300,6 +339,14 @@ fn eval_js(source: &str) -> JsOutput {
         if (!globalThis.__vfs_modules) globalThis.__vfs_modules = {};
         const __module_cache = {};
 
+        // DEBUG: mostrar en terminal qué claves hay en __vfs_modules
+        {
+            const keys = Object.keys(globalThis.__vfs_modules);
+            const npmKeys  = keys.filter(k => !k.startsWith('.') && !k.includes('/') === false && !k.startsWith('components') && !k.startsWith('pages') && !k.startsWith('lib') && !k.startsWith('index') && !k.startsWith('app'));
+            const projKeys = keys.filter(k => k.startsWith('./') || (!k.includes('/') && (k.endsWith('.js')||k.endsWith('.json'))));
+            __logs.push('[VFS] ' + keys.length + ' modules loaded. Sample: ' + keys.slice(0,8).join(', '));
+        }
+
         function __resolve_module_path(from_dir, dep) {
             if (!dep.startsWith('.')) return dep;
             const stack = (from_dir ? from_dir + '/' + dep : dep).split('/');
@@ -311,6 +358,41 @@ fn eval_js(source: &str) -> JsOutput {
             return resolved.join('/');
         }
 
+        function __pick_package_entry(pkg) {
+            function pick(v) {
+                if (!v) return null;
+                if (typeof v === 'string') return v;
+                if (Array.isArray(v)) {
+                    for (const item of v) {
+                        const hit = pick(item);
+                        if (hit) return hit;
+                    }
+                    return null;
+                }
+                if (typeof v === 'object') {
+                    // Prefer CommonJS-friendly keys first.
+                    for (const key of ['require', 'node', 'default', 'import', 'browser']) {
+                        const hit = pick(v[key]);
+                        if (hit) return hit;
+                    }
+                    // Fallback: first string-like value in object.
+                    for (const value of Object.values(v)) {
+                        const hit = pick(value);
+                        if (hit) return hit;
+                    }
+                }
+                return null;
+            }
+
+            const exportsField = pkg && pkg.exports;
+            let exportTarget = exportsField;
+            if (exportsField && typeof exportsField === 'object' && exportsField['.'] !== undefined) {
+                exportTarget = exportsField['.'];
+            }
+
+            return pick(exportTarget) || pick(pkg.main) || pick(pkg.module) || 'index.js';
+        }
+
         function __find_module_file(name) {
             const vfs = globalThis.__vfs_modules;
             // Leer main de package.json — preferir CJS (main) sobre ESM (module)
@@ -318,22 +400,32 @@ fn eval_js(source: &str) -> JsOutput {
             if (vfs[pkgPath]) {
                 try {
                     const pkg = JSON.parse(vfs[pkgPath]);
-                    // Orden: exports.require > main > module (evitar ESM cuando sea posible)
-                    const exportsReq = pkg.exports && (
-                        (pkg.exports['.'] && (pkg.exports['.'].require || pkg.exports['.'].default)) ||
-                        pkg.exports.require
-                    );
-                    const entry = exportsReq || pkg.main || pkg.module || 'index.js';
-                    const resolved = name + '/' + entry.replace(/^\.\//, '');
-                    if (vfs[resolved] !== undefined) return { path: resolved, code: vfs[resolved] };
+                    const entry = __pick_package_entry(pkg);
+                    const normalizedEntry = String(entry).replace(/^\.\//, '');
+                    const resolved = name + '/' + normalizedEntry;
+                    const entryCandidates = [
+                        resolved,
+                        resolved + '.js',
+                        resolved + '.cjs',
+                        resolved + '.mjs',
+                        resolved + '/index.js',
+                        resolved + '/index.cjs',
+                        resolved + '/index.mjs',
+                    ];
+                    for (const candidate of entryCandidates) {
+                        if (vfs[candidate] !== undefined) return { path: candidate, code: vfs[candidate] };
+                    }
                 } catch(e) {}
             }
             // Fallback: candidatos en orden de prioridad (CJS antes que ESM)
             const candidates = [
                 name + '/index.js',
                 name + '/index.cjs',
+                name + '/index.json',
                 name,
                 name + '.js',
+                name + '.cjs',
+                name + '.json',
                 name + '/index.mjs',
             ];
             for (const c of candidates) {
@@ -481,21 +573,28 @@ fn eval_js(source: &str) -> JsOutput {
             let json = val.as_string().unwrap_or_default();
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
                 let stderr = v["stderr"].as_str().unwrap_or("").to_string();
-                let server_ports = v["server_ports"].as_array()
+                let server_ports = v["server_ports"]
+                    .as_array()
                     .map(|arr| arr.iter().filter_map(|p| p.as_u64()).collect::<Vec<_>>())
                     .unwrap_or_default();
                 let mut stdout = v["stdout"].as_str().unwrap_or("").to_string();
                 for port in &server_ports {
-                    if !stdout.is_empty() { stdout.push('\n'); }
+                    if !stdout.is_empty() {
+                        stdout.push('\n');
+                    }
                     stdout.push_str(&format!("🔥 Server running → http://localhost:{port}"));
                 }
                 JsOutput {
                     stdout,
-                    stderr:    stderr.clone(),
+                    stderr: stderr.clone(),
                     exit_code: if stderr.is_empty() { 0 } else { 1 },
                 }
             } else {
-                JsOutput { stdout: json, stderr: String::new(), exit_code: 0 }
+                JsOutput {
+                    stdout: json,
+                    stderr: String::new(),
+                    exit_code: 0,
+                }
             }
         }
         Err(e) => {
@@ -506,7 +605,11 @@ fn eval_js(source: &str) -> JsOutput {
                 .filter(|s| !s.is_empty())
                 .or_else(|| e.as_string())
                 .unwrap_or_else(|| "eval error (unknown)".into());
-            JsOutput { stdout: String::new(), stderr: msg, exit_code: 1 }
+            JsOutput {
+                stdout: String::new(),
+                stderr: msg,
+                exit_code: 1,
+            }
         }
     }
 }
@@ -533,14 +636,14 @@ fn eval_js(source: &str) -> JsOutput {
 
     if ctx.eval(Source::from_bytes(log_script)).is_err() {
         return JsOutput {
-            stdout:    String::new(),
-            stderr:    "boa: failed to initialize console".into(),
+            stdout: String::new(),
+            stderr: "boa: failed to initialize console".into(),
             exit_code: 1,
         };
     }
 
     let exit_code = match ctx.eval(Source::from_bytes(source)) {
-        Ok(_)  => 0,
+        Ok(_) => 0,
         Err(e) => {
             let msg = e.to_string();
             let _ = ctx.eval(Source::from_bytes(&format!(
@@ -551,17 +654,23 @@ fn eval_js(source: &str) -> JsOutput {
         }
     };
 
-    let stdout = ctx.eval(Source::from_bytes("__stdout.join('\\n')"))
+    let stdout = ctx
+        .eval(Source::from_bytes("__stdout.join('\\n')"))
         .ok()
         .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()))
         .unwrap_or_default();
 
-    let stderr = ctx.eval(Source::from_bytes("__stderr.join('\\n')"))
+    let stderr = ctx
+        .eval(Source::from_bytes("__stderr.join('\\n')"))
         .ok()
         .and_then(|v| v.as_string().map(|s| s.to_std_string_escaped()))
         .unwrap_or_default();
 
-    JsOutput { stdout, stderr, exit_code }
+    JsOutput {
+        stdout,
+        stderr,
+        exit_code,
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

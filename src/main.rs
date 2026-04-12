@@ -17,9 +17,7 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     tracing_subscriber::fmt()
         .with_writer(io::stderr)
-        .with_env_filter(
-            std::env::var("RUNBOX_LOG").unwrap_or_else(|_| "warn".into()),
-        )
+        .with_env_filter(std::env::var("RUNBOX_LOG").unwrap_or_else(|_| "warn".into()))
         .init();
 
     let args: Vec<String> = std::env::args().collect();
@@ -31,13 +29,9 @@ fn main() {
 
     tracing::info!("runbox MCP server starting (stdio transport)");
 
-    let mut server = McpServer::new(
-        Vfs::new(),
-        ProcessManager::new(),
-        Console::default(),
-    );
+    let mut server = McpServer::new(Vfs::new(), ProcessManager::new(), Console::default());
 
-    let stdin  = io::stdin();
+    let stdin = io::stdin();
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
@@ -73,5 +67,8 @@ fn main() {
 fn print_tools() {
     use runbox::ai::tools::{all_tools, to_openai_format};
     let tools = all_tools();
-    println!("{}", serde_json::to_string_pretty(&to_openai_format(&tools)).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&to_openai_format(&tools)).unwrap()
+    );
 }

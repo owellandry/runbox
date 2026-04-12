@@ -10,8 +10,8 @@ pub trait McpTransport: Send {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub struct StdioTransport {
-    child:  std::process::Child,
-    stdin:  std::process::ChildStdin,
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
     stdout: std::io::BufReader<std::process::ChildStdout>,
 }
 
@@ -22,43 +22,53 @@ impl StdioTransport {
         args: &[String],
         env: &std::collections::HashMap<String, String>,
     ) -> Result<Self> {
-        use std::process::{Command, Stdio};
         use std::io::BufReader;
+        use std::process::{Command, Stdio};
 
         let mut cmd = Command::new(command);
-        cmd.args(args).envs(env)
-           .stdin(Stdio::piped())
-           .stdout(Stdio::piped())
-           .stderr(Stdio::null());
+        cmd.args(args)
+            .envs(env)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
 
-        let mut child = cmd.spawn().map_err(|e| {
-            RunboxError::Runtime(format!("failed to spawn '{command}': {e}"))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| RunboxError::Runtime(format!("failed to spawn '{command}': {e}")))?;
 
-        let stdin  = child.stdin.take()
+        let stdin = child
+            .stdin
+            .take()
             .ok_or_else(|| RunboxError::Runtime("stdin unavailable".into()))?;
-        let stdout = child.stdout.take()
+        let stdout = child
+            .stdout
+            .take()
             .ok_or_else(|| RunboxError::Runtime("stdout unavailable".into()))?;
 
-        Ok(Self { child, stdin, stdout: BufReader::new(stdout) })
+        Ok(Self {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout),
+        })
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl McpTransport for StdioTransport {
     fn send(&mut self, message: &str) -> Result<String> {
-        use std::io::{Write, BufRead};
-        writeln!(self.stdin, "{message}").map_err(|e| {
-            RunboxError::Runtime(format!("write to MCP server: {e}"))
-        })?;
+        use std::io::{BufRead, Write};
+        writeln!(self.stdin, "{message}")
+            .map_err(|e| RunboxError::Runtime(format!("write to MCP server: {e}")))?;
         self.stdin.flush().ok();
         let mut line = String::new();
-        self.stdout.read_line(&mut line).map_err(|e| {
-            RunboxError::Runtime(format!("read from MCP server: {e}"))
-        })?;
+        self.stdout
+            .read_line(&mut line)
+            .map_err(|e| RunboxError::Runtime(format!("read from MCP server: {e}")))?;
         Ok(line)
     }
-    fn close(&mut self) { let _ = self.child.kill(); }
+    fn close(&mut self) {
+        let _ = self.child.kill();
+    }
 }
 
 // ── HTTP/SSE ──────────────────────────────────────────────────────────────────
@@ -73,13 +83,16 @@ impl McpTransport for StdioTransport {
 #[cfg(not(target_arch = "wasm32"))]
 pub struct SseTransport {
     base_url: String,
-    headers:  std::collections::HashMap<String, String>,
-    client:   reqwest::blocking::Client,
+    headers: std::collections::HashMap<String, String>,
+    client: reqwest::blocking::Client,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl SseTransport {
-    pub fn new(base_url: impl Into<String>, headers: std::collections::HashMap<String, String>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        headers: std::collections::HashMap<String, String>,
+    ) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             headers,
@@ -89,7 +102,9 @@ impl SseTransport {
 
     fn post_message(&self, message: &str) -> Result<String> {
         let url = format!("{}/message", self.base_url);
-        let mut req = self.client.post(&url)
+        let mut req = self
+            .client
+            .post(&url)
             .header("Content-Type", "application/json")
             .body(message.to_string());
 
@@ -97,13 +112,13 @@ impl SseTransport {
             req = req.header(k, v);
         }
 
-        let resp = req.send().map_err(|e| {
-            RunboxError::Runtime(format!("SSE POST {url}: {e}"))
-        })?;
+        let resp = req
+            .send()
+            .map_err(|e| RunboxError::Runtime(format!("SSE POST {url}: {e}")))?;
 
-        let text = resp.text().map_err(|e| {
-            RunboxError::Runtime(format!("SSE read response: {e}"))
-        })?;
+        let text = resp
+            .text()
+            .map_err(|e| RunboxError::Runtime(format!("SSE read response: {e}")))?;
         Ok(text)
     }
 
@@ -128,17 +143,19 @@ impl McpTransport for SseTransport {
 
         // 2. Leer la respuesta del stream SSE
         let sse_url = format!("{}/sse", self.base_url);
-        let mut req = self.client.get(&sse_url)
+        let mut req = self
+            .client
+            .get(&sse_url)
             .header("Accept", "text/event-stream");
         for (k, v) in &self.headers {
             req = req.header(k, v);
         }
-        let resp = req.send().map_err(|e| {
-            RunboxError::Runtime(format!("SSE GET {sse_url}: {e}"))
-        })?;
-        let body = resp.text().map_err(|e| {
-            RunboxError::Runtime(format!("SSE read: {e}"))
-        })?;
+        let resp = req
+            .send()
+            .map_err(|e| RunboxError::Runtime(format!("SSE GET {sse_url}: {e}")))?;
+        let body = resp
+            .text()
+            .map_err(|e| RunboxError::Runtime(format!("SSE read: {e}")))?;
 
         Self::read_sse_event(&body)
             .ok_or_else(|| RunboxError::Runtime("SSE: no data event received".into()))
@@ -151,13 +168,19 @@ impl McpTransport for SseTransport {
 #[cfg(target_arch = "wasm32")]
 pub struct SseTransport {
     pub base_url: String,
-    pub headers:  std::collections::HashMap<String, String>,
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl SseTransport {
-    pub fn new(base_url: impl Into<String>, headers: std::collections::HashMap<String, String>) -> Self {
-        Self { base_url: base_url.into(), headers }
+    pub fn new(
+        base_url: impl Into<String>,
+        headers: std::collections::HashMap<String, String>,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            headers,
+        }
     }
 }
 
@@ -165,7 +188,7 @@ impl SseTransport {
 impl McpTransport for SseTransport {
     fn send(&mut self, _message: &str) -> Result<String> {
         Err(RunboxError::Runtime(
-            "SSE transport in WASM: use the JS EventSource API directly".into()
+            "SSE transport in WASM: use the JS EventSource API directly".into(),
         ))
     }
     fn close(&mut self) {}
@@ -176,16 +199,15 @@ impl McpTransport for SseTransport {
 #[cfg(not(target_arch = "wasm32"))]
 pub struct WebSocketTransport {
     stream: tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
-    url:    String,
+    url: String,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl WebSocketTransport {
     pub fn connect(url: impl Into<String>) -> Result<Self> {
         let url = url.into();
-        let (stream, _) = tungstenite::connect(&url).map_err(|e| {
-            RunboxError::Runtime(format!("WebSocket connect {url}: {e}"))
-        })?;
+        let (stream, _) = tungstenite::connect(&url)
+            .map_err(|e| RunboxError::Runtime(format!("WebSocket connect {url}: {e}")))?;
         Ok(Self { stream, url })
     }
 }
@@ -195,9 +217,9 @@ impl McpTransport for WebSocketTransport {
     fn send(&mut self, message: &str) -> Result<String> {
         use tungstenite::Message;
 
-        self.stream.send(Message::Text(message.to_string().into())).map_err(|e| {
-            RunboxError::Runtime(format!("WebSocket send {}: {e}", self.url))
-        })?;
+        self.stream
+            .send(Message::Text(message.to_string().into()))
+            .map_err(|e| RunboxError::Runtime(format!("WebSocket send {}: {e}", self.url)))?;
 
         loop {
             match self.stream.read() {
@@ -206,7 +228,7 @@ impl McpTransport for WebSocketTransport {
                     let _ = self.stream.send(Message::Pong(data));
                 }
                 Ok(Message::Close(_)) => {
-                    return Err(RunboxError::Runtime("WebSocket closed by server".into()))
+                    return Err(RunboxError::Runtime("WebSocket closed by server".into()));
                 }
                 Err(e) => return Err(RunboxError::Runtime(format!("WebSocket read: {e}"))),
                 _ => continue,
@@ -236,7 +258,7 @@ impl WebSocketTransport {
 impl McpTransport for WebSocketTransport {
     fn send(&mut self, _message: &str) -> Result<String> {
         Err(RunboxError::Runtime(
-            "WebSocket transport in WASM: use the JS WebSocket API directly".into()
+            "WebSocket transport in WASM: use the JS WebSocket API directly".into(),
         ))
     }
     fn close(&mut self) {}

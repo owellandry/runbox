@@ -1,13 +1,13 @@
+use super::{ExecOutput, Runtime};
+use crate::error::Result;
+use crate::process::ProcessManager;
+use crate::shell::Command;
+use crate::vfs::Vfs;
+use serde::{Deserialize, Serialize};
 /// Runtime de Git — implementación en memoria sobre el VFS.
 /// Local: init, add, commit, status, log, diff, branch, checkout, reset.
 /// Red:   clone, fetch, pull (HTTP smart protocol via reqwest / Service Worker).
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use crate::error::Result;
-use crate::vfs::Vfs;
-use crate::process::ProcessManager;
-use crate::shell::Command;
-use super::{ExecOutput, Runtime};
 
 // ── Tipos de objetos Git ──────────────────────────────────────────────────────
 
@@ -87,16 +87,17 @@ fn head_sha(vfs: &Vfs) -> Option<String> {
 }
 
 fn current_branch(vfs: &Vfs) -> Option<String> {
-    vfs.read("/.git/HEAD")
-        .ok()
-        .and_then(|b| {
-            let s = String::from_utf8_lossy(b).into_owned();
-            s.strip_prefix("ref: refs/heads/").map(|b| b.trim().to_string())
-        })
+    vfs.read("/.git/HEAD").ok().and_then(|b| {
+        let s = String::from_utf8_lossy(b).into_owned();
+        s.strip_prefix("ref: refs/heads/")
+            .map(|b| b.trim().to_string())
+    })
 }
 
 fn now_str() -> String {
-    chrono::Local::now().format("%Y-%m-%d %H:%M:%S %z").to_string()
+    chrono::Local::now()
+        .format("%Y-%m-%d %H:%M:%S %z")
+        .to_string()
 }
 
 // ── Runtime ───────────────────────────────────────────────────────────────────
@@ -104,28 +105,32 @@ fn now_str() -> String {
 pub struct GitRuntime;
 
 impl Runtime for GitRuntime {
-    fn name(&self) -> &'static str { "git" }
+    fn name(&self) -> &'static str {
+        "git"
+    }
 
     fn exec(&self, cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
         let sub = cmd.args.first().map(String::as_str).unwrap_or("");
 
         match sub {
-            "init"     => git_init(cmd, vfs, pm),
-            "add"      => git_add(cmd, vfs, pm),
-            "commit"   => git_commit(cmd, vfs, pm),
-            "status"   => git_status(cmd, vfs, pm),
-            "log"      => git_log(cmd, vfs, pm),
-            "diff"     => git_diff(cmd, vfs, pm),
-            "branch"   => git_branch(cmd, vfs, pm),
+            "init" => git_init(cmd, vfs, pm),
+            "add" => git_add(cmd, vfs, pm),
+            "commit" => git_commit(cmd, vfs, pm),
+            "status" => git_status(cmd, vfs, pm),
+            "log" => git_log(cmd, vfs, pm),
+            "diff" => git_diff(cmd, vfs, pm),
+            "branch" => git_branch(cmd, vfs, pm),
             "checkout" => git_checkout(cmd, vfs, pm),
-            "reset"    => git_reset(cmd, vfs, pm),
-            "clone"  => git_clone(cmd, vfs, pm),
-            "fetch"  => git_fetch(cmd, vfs, pm),
-            "pull"   => git_pull(cmd, vfs, pm),
-            "push"   => git_push(cmd, vfs, pm),
+            "reset" => git_reset(cmd, vfs, pm),
+            "clone" => git_clone(cmd, vfs, pm),
+            "fetch" => git_fetch(cmd, vfs, pm),
+            "pull" => git_pull(cmd, vfs, pm),
+            "push" => git_push(cmd, vfs, pm),
             "remote" => git_remote(cmd, vfs, pm),
             "config" => git_config(cmd, vfs, pm),
-            "" => Ok(err_out("git: no subcommand given. Try: init add commit status log diff branch checkout")),
+            "" => Ok(err_out(
+                "git: no subcommand given. Try: init add commit status log diff branch checkout",
+            )),
             other => Ok(err_out(format!("git: unknown subcommand '{other}'"))),
         }
     }
@@ -135,11 +140,18 @@ impl Runtime for GitRuntime {
 
 fn git_init(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     let path = cmd.args.get(1).map(String::as_str).unwrap_or("/");
-    let git  = if path == "/" { "/.git".to_string() } else { format!("{path}/.git") };
+    let git = if path == "/" {
+        "/.git".to_string()
+    } else {
+        format!("{path}/.git")
+    };
 
-    vfs.write(&format!("{git}/HEAD"),         b"ref: refs/heads/main\n".to_vec())?;
-    vfs.write(&format!("{git}/config"),       default_git_config().into_bytes())?;
-    vfs.write(&format!("{git}/description"),  b"Unnamed repository\n".to_vec())?;
+    vfs.write(&format!("{git}/HEAD"), b"ref: refs/heads/main\n".to_vec())?;
+    vfs.write(&format!("{git}/config"), default_git_config().into_bytes())?;
+    vfs.write(
+        &format!("{git}/description"),
+        b"Unnamed repository\n".to_vec(),
+    )?;
 
     let pid = pm.spawn("git", cmd.args.clone());
     pm.exit(pid, 0)?;
@@ -153,7 +165,9 @@ fn git_add(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exec
 
     let targets: Vec<&str> = cmd.args.iter().skip(1).map(String::as_str).collect();
     if targets.is_empty() {
-        return Ok(err_out("Nothing specified, nothing added.\nHint: git add . to stage all files"));
+        return Ok(err_out(
+            "Nothing specified, nothing added.\nHint: git add . to stage all files",
+        ));
     }
 
     let mut index = Index::load(vfs);
@@ -166,9 +180,16 @@ fn git_add(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exec
             .filter(|p| !p.starts_with("/.git/"))
             .collect()
     } else {
-        targets.iter().map(|t| {
-            if t.starts_with('/') { t.to_string() } else { format!("/{t}") }
-        }).collect()
+        targets
+            .iter()
+            .map(|t| {
+                if t.starts_with('/') {
+                    t.to_string()
+                } else {
+                    format!("/{t}")
+                }
+            })
+            .collect()
     };
 
     for path in paths_to_add {
@@ -194,7 +215,13 @@ fn git_add(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exec
     if staged.is_empty() {
         Ok(ok_out(""))
     } else {
-        Ok(ok_out(staged.iter().map(|p| format!("staged: {p}")).collect::<Vec<_>>().join("\n")))
+        Ok(ok_out(
+            staged
+                .iter()
+                .map(|p| format!("staged: {p}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ))
     }
 }
 
@@ -253,7 +280,10 @@ fn git_commit(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
 
     let pid = pm.spawn("git", cmd.args.clone());
     pm.exit(pid, 0)?;
-    Ok(ok_out(format!("[{branch} {short}] {message}", short = &sha[..7])))
+    Ok(ok_out(format!(
+        "[{branch} {short}] {message}",
+        short = &sha[..7]
+    )))
 }
 
 fn git_status(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
@@ -274,8 +304,12 @@ fn git_status(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
     let mut staged_del = vec![];
     for (path, sha) in &index.staged {
         match last_tree.and_then(|t| t.get(path)) {
-            None       => staged_new.push(path.as_str()),
-            Some(prev) => if prev != sha { staged_mod.push(path.as_str()) },
+            None => staged_new.push(path.as_str()),
+            Some(prev) => {
+                if prev != sha {
+                    staged_mod.push(path.as_str())
+                }
+            }
         }
     }
     if let Some(tree) = last_tree {
@@ -306,23 +340,37 @@ fn git_status(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
         }
     }
 
-    if staged_new.is_empty() && staged_mod.is_empty() && staged_del.is_empty()
-        && unstaged.is_empty() && untracked.is_empty() {
+    if staged_new.is_empty()
+        && staged_mod.is_empty()
+        && staged_del.is_empty()
+        && unstaged.is_empty()
+        && untracked.is_empty()
+    {
         lines.push("nothing to commit, working tree clean".into());
     } else {
         if !staged_new.is_empty() || !staged_mod.is_empty() || !staged_del.is_empty() {
             lines.push("\nChanges to be committed:".into());
-            for p in staged_new  { lines.push(format!("  new file:   {p}")); }
-            for p in staged_mod  { lines.push(format!("  modified:   {p}")); }
-            for p in staged_del  { lines.push(format!("  deleted:    {p}")); }
+            for p in staged_new {
+                lines.push(format!("  new file:   {p}"));
+            }
+            for p in staged_mod {
+                lines.push(format!("  modified:   {p}"));
+            }
+            for p in staged_del {
+                lines.push(format!("  deleted:    {p}"));
+            }
         }
         if !unstaged.is_empty() {
             lines.push("\nChanges not staged for commit:".into());
-            for p in unstaged { lines.push(format!("  modified:   {p}")); }
+            for p in unstaged {
+                lines.push(format!("  modified:   {p}"));
+            }
         }
         if !untracked.is_empty() {
             lines.push("\nUntracked files:".into());
-            for p in untracked { lines.push(format!("  {p}")); }
+            for p in untracked {
+                lines.push(format!("  {p}"));
+            }
         }
     }
 
@@ -394,10 +442,10 @@ fn git_diff(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
             if let Ok(content) = vfs.read(path) {
                 let wt_sha = blob_sha(content);
                 if &wt_sha != staged_sha {
-                    let old = String::from_utf8_lossy(
-                        vfs.read(path).unwrap_or(b"")
-                    ).into_owned();
-                    output.push(format!("diff --git a{path} b{path}\n--- a{path}\n+++ b{path}\n{old}"));
+                    let old = String::from_utf8_lossy(vfs.read(path).unwrap_or(b"")).into_owned();
+                    output.push(format!(
+                        "diff --git a{path} b{path}\n--- a{path}\n+++ b{path}\n{old}"
+                    ));
                 }
             }
         }
@@ -419,7 +467,9 @@ fn git_branch(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
     }
 
     let delete = cmd.args.iter().any(|a| a == "-d" || a == "-D");
-    let new_branch = cmd.args.iter()
+    let new_branch = cmd
+        .args
+        .iter()
         .skip(1)
         .find(|a| !a.starts_with('-'))
         .cloned();
@@ -434,7 +484,10 @@ fn git_branch(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
         }
         // Crear nueva rama apuntando al HEAD actual
         let sha = head_sha(vfs).unwrap_or_default();
-        vfs.write(&format!("/.git/refs/heads/{name}"), format!("{sha}\n").into_bytes())?;
+        vfs.write(
+            &format!("/.git/refs/heads/{name}"),
+            format!("{sha}\n").into_bytes(),
+        )?;
         pm.exit(pid, 0)?;
         return Ok(ok_out(format!("Created branch '{name}'")));
     }
@@ -443,15 +496,24 @@ fn git_branch(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
     let current = current_branch(vfs).unwrap_or_default();
     let refs_path = "/.git/refs/heads";
     let branches = vfs.list(refs_path).unwrap_or_default();
-    let output = branches.iter()
+    let output = branches
+        .iter()
         .map(|b| {
-            if b == &current { format!("* {b}") } else { format!("  {b}") }
+            if b == &current {
+                format!("* {b}")
+            } else {
+                format!("  {b}")
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");
 
     pm.exit(pid, 0)?;
-    Ok(ok_out(if output.is_empty() { format!("* {current} (no commits yet)") } else { output }))
+    Ok(ok_out(if output.is_empty() {
+        format!("* {current} (no commits yet)")
+    } else {
+        output
+    }))
 }
 
 fn git_checkout(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
@@ -460,7 +522,9 @@ fn git_checkout(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result
     }
 
     let create_flag = cmd.args.iter().any(|a| a == "-b");
-    let target = cmd.args.iter()
+    let target = cmd
+        .args
+        .iter()
         .skip(1)
         .find(|a| !a.starts_with('-'))
         .cloned();
@@ -474,13 +538,21 @@ fn git_checkout(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result
 
     if create_flag {
         let sha = head_sha(vfs).unwrap_or_default();
-        vfs.write(&format!("/.git/refs/heads/{target}"), format!("{sha}\n").into_bytes())?;
+        vfs.write(
+            &format!("/.git/refs/heads/{target}"),
+            format!("{sha}\n").into_bytes(),
+        )?;
     } else if !vfs.exists(&format!("/.git/refs/heads/{target}")) {
         pm.exit(pid, 1)?;
-        return Ok(err_out(format!("error: pathspec '{target}' did not match any branch")));
+        return Ok(err_out(format!(
+            "error: pathspec '{target}' did not match any branch"
+        )));
     }
 
-    vfs.write("/.git/HEAD", format!("ref: refs/heads/{target}\n").into_bytes())?;
+    vfs.write(
+        "/.git/HEAD",
+        format!("ref: refs/heads/{target}\n").into_bytes(),
+    )?;
     pm.exit(pid, 0)?;
     Ok(ok_out(format!("Switched to branch '{target}'")))
 }
@@ -520,11 +592,16 @@ fn git_reset(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Ex
 // ── Operaciones de red ────────────────────────────────────────────────────────
 
 fn git_clone(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+    #[cfg(target_arch = "wasm32")]
+    let _ = vfs;
+
     let url = match cmd.args.get(1) {
         Some(u) => u.clone(),
-        None    => return Ok(err_out("git clone: specify a URL")),
+        None => return Ok(err_out("git clone: specify a URL")),
     };
-    let dest = cmd.args.get(2)
+    let dest = cmd
+        .args
+        .get(2)
         .cloned()
         .unwrap_or_else(|| repo_name_from_url(&url));
 
@@ -557,6 +634,8 @@ fn git_clone(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Ex
 fn git_fetch(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     let remote = cmd.args.get(1).map(String::as_str).unwrap_or("origin");
     let remote_url = read_remote_url(vfs, remote);
+    #[cfg(target_arch = "wasm32")]
+    let _ = &remote_url;
 
     let pid = pm.spawn("git", cmd.args.clone());
 
@@ -569,7 +648,10 @@ fn git_fetch(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Ex
                     vfs.write(&path, format!("{sha}\n").into_bytes())?;
                 }
                 pm.exit(pid, 0)?;
-                return Ok(ok_out(format!("From {url}\n   fetched {} refs\n", refs.len())));
+                return Ok(ok_out(format!(
+                    "From {url}\n   fetched {} refs\n",
+                    refs.len()
+                )));
             }
             Err(e) => {
                 pm.exit(pid, 1)?;
@@ -579,12 +661,18 @@ fn git_fetch(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Ex
     }
 
     pm.exit(pid, 0)?;
-    Ok(ok_out(format!("Fetching {remote}...\n(network operations require native build or Service Worker)\n")))
+    Ok(ok_out(format!(
+        "Fetching {remote}...\n(network operations require native build or Service Worker)\n"
+    )))
 }
 
 fn git_pull(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     // fetch + merge
-    let fetch_cmd = Command { program: "git".into(), args: vec!["fetch".into()], env: vec![] };
+    let fetch_cmd = Command {
+        program: "git".into(),
+        args: vec!["fetch".into()],
+        env: vec![],
+    };
     let fetch_out = git_fetch(&fetch_cmd, vfs, pm)?;
 
     let pid = pm.spawn("git", cmd.args.clone());
@@ -599,7 +687,9 @@ fn git_pull(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
 
 fn git_push(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     let remote = cmd.args.get(1).map(String::as_str).unwrap_or("origin");
-    let branch = cmd.args.get(2)
+    let branch = cmd
+        .args
+        .get(2)
         .cloned()
         .or_else(|| current_branch(vfs))
         .unwrap_or_else(|| "main".into());
@@ -617,6 +707,8 @@ fn git_push(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
     };
 
     let creds = GitCredentials::load(vfs);
+    #[cfg(target_arch = "wasm32")]
+    let _ = &creds;
     let pid = pm.spawn("git", cmd.args.clone());
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -648,9 +740,9 @@ fn git_push(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GitCredentials {
     pub username: Option<String>,
-    pub email:    Option<String>,
-    pub token:    Option<String>,   // Personal Access Token (GitHub, GitLab, etc.)
-    pub password: Option<String>,   // HTTP Basic password (fallback)
+    pub email: Option<String>,
+    pub token: Option<String>, // Personal Access Token (GitHub, GitLab, etc.)
+    pub password: Option<String>, // HTTP Basic password (fallback)
 }
 
 impl GitCredentials {
@@ -686,12 +778,28 @@ fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::new();
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let b1 = if chunk.len() > 1 {
+            chunk[1] as usize
+        } else {
+            0
+        };
+        let b2 = if chunk.len() > 2 {
+            chunk[2] as usize
+        } else {
+            0
+        };
         out.push(TABLE[b0 >> 2] as char);
         out.push(TABLE[((b0 & 3) << 4) | (b1 >> 4)] as char);
-        if chunk.len() > 1 { out.push(TABLE[((b1 & 0xf) << 2) | (b2 >> 6)] as char); } else { out.push('='); }
-        if chunk.len() > 2 { out.push(TABLE[b2 & 0x3f] as char); }         else { out.push('='); }
+        if chunk.len() > 1 {
+            out.push(TABLE[((b1 & 0xf) << 2) | (b2 >> 6)] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[b2 & 0x3f] as char);
+        } else {
+            out.push('=');
+        }
     }
     out
 }
@@ -704,31 +812,43 @@ fn git_config(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
     let (key, value) = match args.len() {
         4 => match args.as_slice() {
             [_, "--global", k, v] | [_, k, v] => (*k, Some(*v)),
-            _ => { pm.exit(pid, 1)?; return Ok(err_out("git config: invalid syntax")); }
+            _ => {
+                pm.exit(pid, 1)?;
+                return Ok(err_out("git config: invalid syntax"));
+            }
         },
         3 => match args.as_slice() {
             [_, "--global", k] | [_, k] => (*k, None),
-            _ => { pm.exit(pid, 1)?; return Ok(err_out("git config: invalid syntax")); }
+            _ => {
+                pm.exit(pid, 1)?;
+                return Ok(err_out("git config: invalid syntax"));
+            }
         },
-        _ => { pm.exit(pid, 1)?; return Ok(err_out("git config: invalid syntax")); }
+        _ => {
+            pm.exit(pid, 1)?;
+            return Ok(err_out("git config: invalid syntax"));
+        }
     };
 
     let mut creds = GitCredentials::load(vfs);
 
     if let Some(val) = value {
         match key {
-            "user.name"  => creds.username = Some(val.into()),
-            "user.email" => creds.email    = Some(val.into()),
+            "user.name" => creds.username = Some(val.into()),
+            "user.email" => creds.email = Some(val.into()),
             "user.token" | "credential.token" => creds.token = Some(val.into()),
-            "user.password"                   => creds.password = Some(val.into()),
-            _ => { pm.exit(pid, 0)?; return Ok(ok_out("")); }
+            "user.password" => creds.password = Some(val.into()),
+            _ => {
+                pm.exit(pid, 0)?;
+                return Ok(ok_out(""));
+            }
         }
         creds.save(vfs)?;
         pm.exit(pid, 0)?;
         Ok(ok_out(""))
     } else {
         let val = match key {
-            "user.name"  => creds.username.as_deref().unwrap_or("").to_string(),
+            "user.name" => creds.username.as_deref().unwrap_or("").to_string(),
             "user.email" => creds.email.as_deref().unwrap_or("").to_string(),
             "user.token" => creds.token.as_deref().unwrap_or("").to_string(),
             _ => String::new(),
@@ -739,32 +859,45 @@ fn git_config(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn http_git_push(url: &str, branch: &str, vfs: &Vfs, creds: &GitCredentials) -> crate::error::Result<String> {
-
+fn http_git_push(
+    url: &str,
+    branch: &str,
+    vfs: &Vfs,
+    creds: &GitCredentials,
+) -> crate::error::Result<String> {
     // Paso 1: descubrir capacidades del servidor
-    let disc_url = format!("{}/info/refs?service=git-receive-pack",
-        url.trim_end_matches('/'));
+    let disc_url = format!(
+        "{}/info/refs?service=git-receive-pack",
+        url.trim_end_matches('/')
+    );
 
     let mut req = reqwest::blocking::Client::new().get(&disc_url);
     if let Some(auth) = creds.auth_header() {
         req = req.header("Authorization", auth);
     }
-    let resp = req.send().map_err(|e| {
-        crate::error::RunboxError::Runtime(format!("push discovery: {e}"))
-    })?;
+    let resp = req
+        .send()
+        .map_err(|e| crate::error::RunboxError::Runtime(format!("push discovery: {e}")))?;
 
     match resp.status().as_u16() {
         200 | 201 => {}
-        401 => return Err(crate::error::RunboxError::Runtime(
-            "Authentication failed.\n\
-             Set credentials with:\n  git config user.token <your-token>".into()
-        )),
-        403 => return Err(crate::error::RunboxError::Runtime(
-            "Permission denied (403). Check that your token has write access.".into()
-        )),
-        code => return Err(crate::error::RunboxError::Runtime(
-            format!("push failed: HTTP {code}")
-        )),
+        401 => {
+            return Err(crate::error::RunboxError::Runtime(
+                "Authentication failed.\n\
+             Set credentials with:\n  git config user.token <your-token>"
+                    .into(),
+            ));
+        }
+        403 => {
+            return Err(crate::error::RunboxError::Runtime(
+                "Permission denied (403). Check that your token has write access.".into(),
+            ));
+        }
+        code => {
+            return Err(crate::error::RunboxError::Runtime(format!(
+                "push failed: HTTP {code}"
+            )));
+        }
     }
 
     // Paso 2: obtener el SHA del HEAD local
@@ -772,12 +905,13 @@ fn http_git_push(url: &str, branch: &str, vfs: &Vfs, creds: &GitCredentials) -> 
     let local_sha = log.last().map(|c| c.sha.clone()).unwrap_or_default();
     if local_sha.is_empty() {
         return Err(crate::error::RunboxError::Runtime(
-            "Nothing to push — no commits in local repository".into()
+            "Nothing to push — no commits in local repository".into(),
         ));
     }
 
     let remote_ref = format!("refs/heads/{branch}");
-    let remote_sha = vfs.read(&format!("/.git/{remote_ref}"))
+    let remote_sha = vfs
+        .read(&format!("/.git/{remote_ref}"))
         .map(|b| String::from_utf8_lossy(b).trim().to_string())
         .unwrap_or_else(|_| "0".repeat(40));
 
@@ -801,9 +935,9 @@ fn http_git_push(url: &str, branch: &str, vfs: &Vfs, creds: &GitCredentials) -> 
     if let Some(auth) = creds.auth_header() {
         req = req.header("Authorization", auth);
     }
-    let resp = req.send().map_err(|e| {
-        crate::error::RunboxError::Runtime(format!("push failed: {e}"))
-    })?;
+    let resp = req
+        .send()
+        .map_err(|e| crate::error::RunboxError::Runtime(format!("push failed: {e}")))?;
 
     let status = resp.status().as_u16();
     if status >= 200 && status < 300 {
@@ -813,7 +947,9 @@ fn http_git_push(url: &str, branch: &str, vfs: &Vfs, creds: &GitCredentials) -> 
             new = &local_sha[..7],
         ))
     } else {
-        Err(crate::error::RunboxError::Runtime(format!("push rejected: HTTP {status}")))
+        Err(crate::error::RunboxError::Runtime(format!(
+            "push rejected: HTTP {status}"
+        )))
     }
 }
 
@@ -824,7 +960,7 @@ fn git_remote(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
     match sub {
         "add" => {
             let name = cmd.args.get(2);
-            let url  = cmd.args.get(3);
+            let url = cmd.args.get(3);
             if let (Some(n), Some(u)) = (name, url) {
                 save_remote_url(vfs, n, u)?;
                 pm.exit(pid, 0)?;
@@ -856,14 +992,17 @@ fn git_remote(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
 #[cfg(not(target_arch = "wasm32"))]
 fn http_git_ls_refs(url: &str) -> crate::error::Result<Vec<(String, String)>> {
     use crate::network::http_get;
-    let discovery_url = format!("{}/info/refs?service=git-upload-pack",
-        url.trim_end_matches('/'));
+    let discovery_url = format!(
+        "{}/info/refs?service=git-upload-pack",
+        url.trim_end_matches('/')
+    );
     let resp = http_get(&discovery_url)?;
 
     if resp.status != 200 {
-        return Err(crate::error::RunboxError::Runtime(
-            format!("git ls-refs: HTTP {}", resp.status)
-        ));
+        return Err(crate::error::RunboxError::Runtime(format!(
+            "git ls-refs: HTTP {}",
+            resp.status
+        )));
     }
 
     parse_pkt_line_refs(resp.body_str())
@@ -873,15 +1012,22 @@ fn http_git_ls_refs(url: &str) -> crate::error::Result<Vec<(String, String)>> {
 fn http_git_clone(url: &str, dest: &str, vfs: &mut Vfs) -> crate::error::Result<String> {
     // 1. Descubrir refs
     let refs = http_git_ls_refs(url)?;
-    let head_sha = refs.iter()
+    let head_sha = refs
+        .iter()
         .find(|(_, r)| r == "HEAD" || r == "refs/heads/main" || r == "refs/heads/master")
         .map(|(s, _)| s.clone())
         .unwrap_or_default();
 
     // 2. Inicializar repo en el VFS
-    vfs.write(&format!("/{dest}/.git/HEAD"), b"ref: refs/heads/main\n".to_vec())?;
+    vfs.write(
+        &format!("/{dest}/.git/HEAD"),
+        b"ref: refs/heads/main\n".to_vec(),
+    )?;
     for (sha, refname) in &refs {
-        vfs.write(&format!("/{dest}/.git/{refname}"), format!("{sha}\n").into_bytes())?;
+        vfs.write(
+            &format!("/{dest}/.git/{refname}"),
+            format!("{sha}\n").into_bytes(),
+        )?;
     }
 
     // 3. Guardar la URL del remote
@@ -906,11 +1052,13 @@ fn parse_pkt_line_refs(body: &str) -> crate::error::Result<Vec<(String, String)>
 
     for line in lines {
         // Cada línea: 4 hex chars (longitud) + sha1 + ' ' + refname + flags
-        if line.len() < 45 { continue; }
+        if line.len() < 45 {
+            continue;
+        }
         let content = &line[4..]; // saltar los 4 bytes de longitud
         let parts: Vec<&str> = content.splitn(2, ' ').collect();
         if parts.len() == 2 {
-            let sha     = parts[0].trim().to_string();
+            let sha = parts[0].trim().to_string();
             let refname = parts[1].split('\0').next().unwrap_or("").trim().to_string();
             if sha.len() == 40 && !refname.is_empty() {
                 refs.push((sha, refname));
@@ -923,12 +1071,23 @@ fn parse_pkt_line_refs(body: &str) -> crate::error::Result<Vec<(String, String)>
 // ── Remote URL helpers ────────────────────────────────────────────────────────
 
 fn save_remote_url(vfs: &mut Vfs, name: &str, url: &str) -> crate::error::Result<()> {
-    vfs.write(&format!("/.git/config.remotes.{name}"), url.as_bytes().to_vec())
+    vfs.write(
+        &format!("/.git/config.remotes.{name}"),
+        url.as_bytes().to_vec(),
+    )
 }
 
 #[allow(dead_code)]
-fn save_remote_url_path(vfs: &mut Vfs, prefix: &str, name: &str, url: &str) -> crate::error::Result<()> {
-    vfs.write(&format!("{prefix}/.git/config.remotes.{name}"), url.as_bytes().to_vec())
+fn save_remote_url_path(
+    vfs: &mut Vfs,
+    prefix: &str,
+    name: &str,
+    url: &str,
+) -> crate::error::Result<()> {
+    vfs.write(
+        &format!("{prefix}/.git/config.remotes.{name}"),
+        url.as_bytes().to_vec(),
+    )
 }
 
 fn read_remote_url(vfs: &Vfs, name: &str) -> Option<String> {
@@ -940,11 +1099,14 @@ fn read_remote_url(vfs: &Vfs, name: &str) -> Option<String> {
 
 fn list_remotes(vfs: &Vfs) -> String {
     // Listar todas las entradas /.git/config.remotes.*
-    vfs.list("/.git").unwrap_or_default().iter()
+    vfs.list("/.git")
+        .unwrap_or_default()
+        .iter()
         .filter(|e| e.starts_with("config.remotes."))
         .map(|e| {
             let name = e.trim_start_matches("config.remotes.");
-            let url  = vfs.read(&format!("/.git/{e}"))
+            let url = vfs
+                .read(&format!("/.git/{e}"))
                 .map(|b| String::from_utf8_lossy(b).trim().to_string())
                 .unwrap_or_default();
             format!("{name}\t{url} (fetch)\n{name}\t{url} (push)")
@@ -965,11 +1127,19 @@ fn repo_name_from_url(url: &str) -> String {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn ok_out(text: impl Into<String>) -> ExecOutput {
-    ExecOutput { stdout: text.into().into_bytes(), stderr: vec![], exit_code: 0 }
+    ExecOutput {
+        stdout: text.into().into_bytes(),
+        stderr: vec![],
+        exit_code: 0,
+    }
 }
 
 fn err_out(text: impl Into<String>) -> ExecOutput {
-    ExecOutput { stdout: vec![], stderr: text.into().into_bytes(), exit_code: 1 }
+    ExecOutput {
+        stdout: vec![],
+        stderr: text.into().into_bytes(),
+        exit_code: 1,
+    }
 }
 
 fn default_git_config() -> String {
@@ -992,9 +1162,16 @@ fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
 
 fn collect_files(vfs: &Vfs, path: &str) -> Vec<String> {
     let mut result = vec![];
-    let entries = match vfs.list(path) { Ok(e) => e, Err(_) => return result };
+    let entries = match vfs.list(path) {
+        Ok(e) => e,
+        Err(_) => return result,
+    };
     for entry in entries {
-        let full = if path == "/" { format!("/{entry}") } else { format!("{path}/{entry}") };
+        let full = if path == "/" {
+            format!("/{entry}")
+        } else {
+            format!("{path}/{entry}")
+        };
         if vfs.read(&full).is_ok() {
             result.push(full);
         } else {
@@ -1009,8 +1186,12 @@ mod tests {
     use super::*;
     use crate::process::ProcessManager;
 
-    fn pm() -> ProcessManager { ProcessManager::new() }
-    fn cmd(s: &str) -> Command { Command::parse(s).unwrap() }
+    fn pm() -> ProcessManager {
+        ProcessManager::new()
+    }
+    fn cmd(s: &str) -> Command {
+        Command::parse(s).unwrap()
+    }
 
     #[test]
     fn init_and_commit() {
@@ -1022,10 +1203,13 @@ mod tests {
         assert_eq!(out.exit_code, 0);
         assert!(vfs.exists("/.git/HEAD"));
 
-        vfs.write("/src/main.ts", b"console.log('hi')".to_vec()).unwrap();
+        vfs.write("/src/main.ts", b"console.log('hi')".to_vec())
+            .unwrap();
         rt.exec(&cmd("git add ."), &mut vfs, &mut pm).unwrap();
 
-        let out = rt.exec(&cmd(r#"git commit -m "initial commit""#), &mut vfs, &mut pm).unwrap();
+        let out = rt
+            .exec(&cmd(r#"git commit -m "initial commit""#), &mut vfs, &mut pm)
+            .unwrap();
         assert_eq!(out.exit_code, 0);
         assert!(String::from_utf8_lossy(&out.stdout).contains("initial commit"));
     }
@@ -1053,10 +1237,14 @@ mod tests {
         rt.exec(&cmd("git init"), &mut vfs, &mut pm).unwrap();
         vfs.write("/file.ts", b"x".to_vec()).unwrap();
         rt.exec(&cmd("git add ."), &mut vfs, &mut pm).unwrap();
-        rt.exec(&cmd(r#"git commit -m "first""#), &mut vfs, &mut pm).unwrap();
+        rt.exec(&cmd(r#"git commit -m "first""#), &mut vfs, &mut pm)
+            .unwrap();
 
-        rt.exec(&cmd("git branch feature"), &mut vfs, &mut pm).unwrap();
-        let out = rt.exec(&cmd("git checkout feature"), &mut vfs, &mut pm).unwrap();
+        rt.exec(&cmd("git branch feature"), &mut vfs, &mut pm)
+            .unwrap();
+        let out = rt
+            .exec(&cmd("git checkout feature"), &mut vfs, &mut pm)
+            .unwrap();
         assert_eq!(out.exit_code, 0);
         assert_eq!(current_branch(&vfs).unwrap(), "feature");
     }

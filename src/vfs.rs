@@ -1,9 +1,9 @@
+use crate::error::{Result, RunboxError};
+use serde::{Deserialize, Serialize};
 /// Virtual Filesystem — sistema de archivos en memoria.
 /// Todos los runtimes (Bun, Python, etc.) operan sobre este VFS.
 /// Incluye tracking de cambios para hot-reload.
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use crate::error::{Result, RunboxError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Node {
@@ -42,12 +42,19 @@ impl Vfs {
 
     /// Escribe un archivo. Crea directorios intermedios si no existen.
     pub fn write(&mut self, path: &str, content: Vec<u8>) -> Result<()> {
-        let kind = if self.exists(path) { ChangeKind::Modified } else { ChangeKind::Created };
+        let kind = if self.exists(path) {
+            ChangeKind::Modified
+        } else {
+            ChangeKind::Created
+        };
         let parts = split_path(path);
         insert(&mut self.root, &parts, content)?;
         // No emitir cambios en archivos internos de .git
         if !path.starts_with("/.git/") {
-            self.pending_changes.push(FileChange { path: path.to_string(), kind });
+            self.pending_changes.push(FileChange {
+                path: path.to_string(),
+                kind,
+            });
         }
         Ok(())
     }
@@ -177,7 +184,8 @@ mod tests {
     #[test]
     fn write_and_read() {
         let mut vfs = Vfs::new();
-        vfs.write("/src/main.ts", b"console.log('hi')".to_vec()).unwrap();
+        vfs.write("/src/main.ts", b"console.log('hi')".to_vec())
+            .unwrap();
         assert_eq!(vfs.read("/src/main.ts").unwrap(), b"console.log('hi')");
     }
 
@@ -217,7 +225,8 @@ mod tests {
     #[test]
     fn git_changes_ignored() {
         let mut vfs = Vfs::new();
-        vfs.write("/.git/HEAD", b"ref: refs/heads/main\n".to_vec()).unwrap();
+        vfs.write("/.git/HEAD", b"ref: refs/heads/main\n".to_vec())
+            .unwrap();
         vfs.write("/src/app.ts", b"code".to_vec()).unwrap();
 
         let changes = vfs.drain_changes();

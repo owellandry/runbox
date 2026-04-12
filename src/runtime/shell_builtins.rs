@@ -1,9 +1,9 @@
+use super::{ExecOutput, Runtime};
 /// Comandos builtin del shell: cd, ls, echo, cat, pwd, mkdir, rm...
 use crate::error::{Result, RunboxError};
-use crate::vfs::Vfs;
 use crate::process::ProcessManager;
 use crate::shell::Command;
-use super::{ExecOutput, Runtime};
+use crate::vfs::Vfs;
 
 pub struct ShellBuiltins;
 
@@ -26,34 +26,42 @@ impl Runtime for ShellBuiltins {
             }
 
             "cat" => {
-                let path = cmd.args.first().ok_or_else(|| {
-                    RunboxError::Shell("cat: missing file".into())
-                })?;
+                let path = cmd
+                    .args
+                    .first()
+                    .ok_or_else(|| RunboxError::Shell("cat: missing file".into()))?;
                 let bytes = vfs.read(path)?.to_vec();
-                Ok(ExecOutput { stdout: bytes, stderr: vec![], exit_code: 0 })
+                Ok(ExecOutput {
+                    stdout: bytes,
+                    stderr: vec![],
+                    exit_code: 0,
+                })
             }
 
             "mkdir" => {
-                let path = cmd.args.first().ok_or_else(|| {
-                    RunboxError::Shell("mkdir: missing path".into())
-                })?;
+                let path = cmd
+                    .args
+                    .first()
+                    .ok_or_else(|| RunboxError::Shell("mkdir: missing path".into()))?;
                 // Crea un placeholder para marcar el dir
                 vfs.write(&format!("{path}/.runbox_dir"), vec![])?;
                 Ok(ok(""))
             }
 
             "rm" => {
-                let path = cmd.args.first().ok_or_else(|| {
-                    RunboxError::Shell("rm: missing path".into())
-                })?;
+                let path = cmd
+                    .args
+                    .first()
+                    .ok_or_else(|| RunboxError::Shell("rm: missing path".into()))?;
                 vfs.remove(path)?;
                 Ok(ok(""))
             }
 
             "touch" => {
-                let path = cmd.args.first().ok_or_else(|| {
-                    RunboxError::Shell("touch: missing path".into())
-                })?;
+                let path = cmd
+                    .args
+                    .first()
+                    .ok_or_else(|| RunboxError::Shell("touch: missing path".into()))?;
                 if !vfs.exists(path) {
                     vfs.write(path, vec![])?;
                 }

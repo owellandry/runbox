@@ -1,9 +1,9 @@
+use crate::process::Pid;
+use serde::{Deserialize, Serialize};
 /// Terminal — integración con xterm.js.
 /// Gestiona el buffer de salida, cola de entrada y redimensionado.
 /// El lado JS (xterm.js) lee `output_drain()` y escribe con `input_push()`.
 use std::collections::VecDeque;
-use serde::{Deserialize, Serialize};
-use crate::process::Pid;
 
 // ── Tamaño del terminal ───────────────────────────────────────────────────────
 
@@ -24,7 +24,7 @@ impl Default for TerminalSize {
 #[derive(Debug, Clone)]
 pub struct InputChunk {
     /// PID del proceso que debe recibir este input (None = proceso activo).
-    pub pid:  Option<Pid>,
+    pub pid: Option<Pid>,
     pub data: String,
 }
 
@@ -33,31 +33,34 @@ pub struct InputChunk {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputChunk {
     /// PID que generó la salida.
-    pub pid:    Pid,
+    pub pid: Pid,
     /// ANSI text tal cual — xterm.js lo renderiza directamente.
-    pub data:   String,
+    pub data: String,
     pub stream: Stream,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Stream { Stdout, Stderr }
+pub enum Stream {
+    Stdout,
+    Stderr,
+}
 
 // ── Terminal ──────────────────────────────────────────────────────────────────
 
 pub struct Terminal {
     output_buf: VecDeque<OutputChunk>,
-    input_buf:  VecDeque<InputChunk>,
-    pub size:   TerminalSize,
-    capacity:   usize,
+    input_buf: VecDeque<InputChunk>,
+    pub size: TerminalSize,
+    capacity: usize,
 }
 
 impl Terminal {
     pub fn new(capacity: usize) -> Self {
         Self {
             output_buf: VecDeque::with_capacity(capacity),
-            input_buf:  VecDeque::new(),
-            size:       TerminalSize::default(),
+            input_buf: VecDeque::new(),
+            size: TerminalSize::default(),
             capacity,
         }
     }
@@ -122,7 +125,10 @@ impl Terminal {
 
     /// xterm.js llama esto cuando el usuario escribe.
     pub fn input_push(&mut self, data: impl Into<String>, pid: Option<Pid>) {
-        self.input_buf.push_back(InputChunk { pid, data: data.into() });
+        self.input_buf.push_back(InputChunk {
+            pid,
+            data: data.into(),
+        });
     }
 
     /// El process manager consume el input pendiente.

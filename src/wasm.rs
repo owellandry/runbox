@@ -5,12 +5,12 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub struct RunboxInstance {
-    vfs:       crate::vfs::Vfs,
-    pm:        crate::process::ProcessManager,
-    console:   crate::console::Console,
-    hot:       crate::hotreload::HotReloader,
+    vfs: crate::vfs::Vfs,
+    pm: crate::process::ProcessManager,
+    console: crate::console::Console,
+    hot: crate::hotreload::HotReloader,
     inspector: crate::inspector::InspectorSession,
-    terminal:  crate::terminal::Terminal,
+    terminal: crate::terminal::Terminal,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -22,10 +22,10 @@ impl RunboxInstance {
         terminal.write_banner();
         terminal.write_prompt("/");
         Self {
-            vfs:       crate::vfs::Vfs::new(),
-            pm:        crate::process::ProcessManager::new(),
-            console:   crate::console::Console::default(),
-            hot:       crate::hotreload::HotReloader::new(80),
+            vfs: crate::vfs::Vfs::new(),
+            pm: crate::process::ProcessManager::new(),
+            console: crate::console::Console::default(),
+            hot: crate::hotreload::HotReloader::new(80),
             inspector: crate::inspector::InspectorSession::new(),
             terminal,
         }
@@ -58,26 +58,35 @@ impl RunboxInstance {
 
     /// Ejecuta un comando. Retorna JSON: { stdout, stderr, exit_code }
     pub fn exec(&mut self, line: &str) -> String {
-        use crate::shell::{Command, RuntimeTarget};
-        use crate::runtime::{Runtime, ExecOutput};
+        use crate::error::RunboxError;
         use crate::runtime::bun::BunRuntime;
-        use crate::runtime::python::PythonRuntime;
         use crate::runtime::git::GitRuntime;
         use crate::runtime::npm::PackageManagerRuntime;
+        use crate::runtime::python::PythonRuntime;
         use crate::runtime::shell_builtins::ShellBuiltins;
-        use crate::error::RunboxError;
+        use crate::runtime::{ExecOutput, Runtime};
+        use crate::shell::{Command, RuntimeTarget};
 
         let result: Result<ExecOutput, RunboxError> = (|| {
             let cmd = Command::parse(line)?;
             let out = match RuntimeTarget::detect(&cmd) {
-                RuntimeTarget::Bun    => BunRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Bun => BunRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
                 RuntimeTarget::Python => PythonRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Git    => GitRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Shell  => ShellBuiltins.exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Npm    => PackageManagerRuntime::npm().exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Pnpm   => PackageManagerRuntime::pnpm().exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Yarn   => PackageManagerRuntime::yarn().exec(&cmd, &mut self.vfs, &mut self.pm),
-                _ => Err(RunboxError::Shell(format!("{}: command not found", cmd.program))),
+                RuntimeTarget::Git => GitRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Shell => ShellBuiltins.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Npm => {
+                    PackageManagerRuntime::npm().exec(&cmd, &mut self.vfs, &mut self.pm)
+                }
+                RuntimeTarget::Pnpm => {
+                    PackageManagerRuntime::pnpm().exec(&cmd, &mut self.vfs, &mut self.pm)
+                }
+                RuntimeTarget::Yarn => {
+                    PackageManagerRuntime::yarn().exec(&cmd, &mut self.vfs, &mut self.pm)
+                }
+                _ => Err(RunboxError::Shell(format!(
+                    "{}: command not found",
+                    cmd.program
+                ))),
             }?;
             Ok(out)
         })();
@@ -89,7 +98,8 @@ impl RunboxInstance {
                     "stdout": String::from_utf8_lossy(&o.stdout),
                     "stderr": String::from_utf8_lossy(&o.stderr),
                     "exit_code": o.exit_code,
-                }).to_string()
+                })
+                .to_string()
             }
             Err(e) => {
                 self.console.error(e.to_string(), "shell");
@@ -97,7 +107,8 @@ impl RunboxInstance {
                     "stdout": "",
                     "stderr": e.to_string(),
                     "exit_code": 1,
-                }).to_string()
+                })
+                .to_string()
             }
         }
     }
@@ -116,8 +127,9 @@ impl RunboxInstance {
     pub fn npm_process_tarball(&mut self, name: &str, version: &str, bytes: &[u8]) -> String {
         use crate::runtime::npm::process_tarball;
         match process_tarball(name, version, bytes, &mut self.vfs) {
-            Ok(_)  => {
-                self.console.info(format!("installed {name}@{version}"), "npm");
+            Ok(_) => {
+                self.console
+                    .info(format!("installed {name}@{version}"), "npm");
                 serde_json::json!({ "ok": true, "name": name, "version": version }).to_string()
             }
             Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }).to_string(),
@@ -139,7 +151,7 @@ impl RunboxInstance {
         use crate::runtime::git::GitCredentials;
         let mut creds = GitCredentials::load(&self.vfs);
         creds.username = Some(name.to_string());
-        creds.email    = Some(email.to_string());
+        creds.email = Some(email.to_string());
         let _ = creds.save(&mut self.vfs);
     }
 
@@ -149,11 +161,11 @@ impl RunboxInstance {
     pub fn console_push(&mut self, level: &str, message: &str, source: &str) -> u64 {
         use crate::console::LogLevel;
         let lvl = match level {
-            "info"  => LogLevel::Info,
-            "warn"  => LogLevel::Warn,
+            "info" => LogLevel::Info,
+            "warn" => LogLevel::Warn,
             "error" => LogLevel::Error,
             "debug" => LogLevel::Debug,
-            _       => LogLevel::Log,
+            _ => LogLevel::Log,
         };
         self.console.push(lvl, message, source, None)
     }
@@ -178,12 +190,14 @@ impl RunboxInstance {
     /// Retorna las definiciones de tools para el proveedor indicado.
     /// provider: "openai" | "anthropic" | "gemini" | "raw"
     pub fn ai_tools(&self, provider: &str) -> String {
-        use crate::ai::tools::{all_tools, to_openai_format, to_anthropic_format, to_gemini_format};
+        use crate::ai::tools::{
+            all_tools, to_anthropic_format, to_gemini_format, to_openai_format,
+        };
         let tools = all_tools();
         let value = match provider {
             "anthropic" => to_anthropic_format(&tools),
-            "gemini"    => to_gemini_format(&tools),
-            _           => to_openai_format(&tools),   // openai / default
+            "gemini" => to_gemini_format(&tools),
+            _ => to_openai_format(&tools), // openai / default
         };
         value.to_string()
     }
@@ -191,19 +205,19 @@ impl RunboxInstance {
     /// Ejecuta una tool call del AI. `call_json` es { name, arguments }.
     /// Retorna JSON: { name, content, error }
     pub fn ai_dispatch(&mut self, call_json: &str) -> String {
-        use crate::ai::{tools::ToolCall, skills::dispatch};
+        use crate::ai::{skills::dispatch, tools::ToolCall};
 
-        let result = serde_json::from_str::<ToolCall>(call_json).map(|call| {
-            dispatch(&call, &mut self.vfs, &mut self.pm, &mut self.console)
-        });
+        let result = serde_json::from_str::<ToolCall>(call_json)
+            .map(|call| dispatch(&call, &mut self.vfs, &mut self.pm, &mut self.console));
 
         match result {
-            Ok(r)  => serde_json::to_string(&r).unwrap_or_default(),
+            Ok(r) => serde_json::to_string(&r).unwrap_or_default(),
             Err(e) => serde_json::json!({
                 "name": "unknown",
                 "content": null,
                 "error": e.to_string()
-            }).to_string(),
+            })
+            .to_string(),
         }
     }
 
@@ -231,24 +245,18 @@ impl RunboxInstance {
                     Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
                 }
             }
-            SandboxCommand::ReadFile { path } => {
-                match self.vfs.read(&path) {
-                    Ok(b) => serde_json::json!({ "content": String::from_utf8_lossy(b) }).to_string(),
-                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-                }
-            }
-            SandboxCommand::ListDir { path } => {
-                match self.vfs.list(&path) {
-                    Ok(e) => serde_json::to_string(&e).unwrap_or_default(),
-                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-                }
-            }
-            SandboxCommand::Kill { pid } => {
-                match self.pm.kill(pid) {
-                    Ok(_) => serde_json::json!({ "killed": pid }).to_string(),
-                    Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-                }
-            }
+            SandboxCommand::ReadFile { path } => match self.vfs.read(&path) {
+                Ok(b) => serde_json::json!({ "content": String::from_utf8_lossy(b) }).to_string(),
+                Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+            },
+            SandboxCommand::ListDir { path } => match self.vfs.list(&path) {
+                Ok(e) => serde_json::to_string(&e).unwrap_or_default(),
+                Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+            },
+            SandboxCommand::Kill { pid } => match self.pm.kill(pid) {
+                Ok(_) => serde_json::json!({ "killed": pid }).to_string(),
+                Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+            },
             // Reload y Fullscreen son manejados por el browser, aquí solo confirmamos
             SandboxCommand::Reload { hard } => {
                 serde_json::json!({ "action": "reload", "hard": hard }).to_string()
@@ -316,29 +324,34 @@ impl RunboxInstance {
     pub fn http_handle_request(&self, request_json: &str) -> String {
         #[derive(serde::Deserialize)]
         struct HttpReq {
-            port:    u16,
-            method:  Option<String>,
-            path:    Option<String>,
+            port: u16,
+            method: Option<String>,
+            path: Option<String>,
             headers: Option<serde_json::Value>,
-            body:    Option<String>,
+            body: Option<String>,
         }
 
         let req: HttpReq = match serde_json::from_str(request_json) {
             Ok(r) => r,
-            Err(e) => return serde_json::json!({
-                "status": 400, "headers": {}, "body": format!("invalid request: {e}")
-            }).to_string(),
+            Err(e) => {
+                return serde_json::json!({
+                    "status": 400, "headers": {}, "body": format!("invalid request: {e}")
+                })
+                .to_string();
+            }
         };
 
-        let port    = req.port;
-        let method  = req.method.unwrap_or_else(|| "GET".into());
-        let path    = req.path.unwrap_or_else(|| "/".into());
-        let body    = req.body.unwrap_or_default();
-        let headers = req.headers
+        let port = req.port;
+        let method = req.method.unwrap_or_else(|| "GET".into());
+        let path = req.path.unwrap_or_else(|| "/".into());
+        let body = req.body.unwrap_or_default();
+        let headers = req
+            .headers
             .map(|h| serde_json::to_string(&h).unwrap_or_else(|_| "{}".into()))
             .unwrap_or_else(|| "{}".into());
 
-        let script = format!(r#"(function() {{
+        let script = format!(
+            r#"(function() {{
             const handler = globalThis.__runbox_servers && globalThis.__runbox_servers[{port}];
             if (!handler) {{
                 return JSON.stringify({{ status: 404, headers: {{'Content-Type': 'text/plain'}}, body: 'No server registered on port {port}' }});
@@ -380,15 +393,18 @@ impl RunboxInstance {
         }})()"#,
             port = port,
             method_json = serde_json::to_string(&method).unwrap(),
-            path_json   = serde_json::to_string(&path).unwrap(),
-            headers     = headers,
-            body_json   = serde_json::to_string(&body).unwrap(),
+            path_json = serde_json::to_string(&path).unwrap(),
+            headers = headers,
+            body_json = serde_json::to_string(&body).unwrap(),
         );
 
         match js_sys::eval(&script) {
-            Ok(val) => val.as_string().unwrap_or_else(|| serde_json::json!({
-                "status": 500, "headers": {}, "body": "handler returned undefined"
-            }).to_string()),
+            Ok(val) => val.as_string().unwrap_or_else(|| {
+                serde_json::json!({
+                    "status": 500, "headers": {}, "body": "handler returned undefined"
+                })
+                .to_string()
+            }),
             Err(e) => {
                 let msg = js_sys::JSON::stringify(&e)
                     .ok()
@@ -416,7 +432,8 @@ impl RunboxInstance {
                 "status": 400,
                 "headers": {},
                 "body": format!("invalid request: {e}"),
-            }).to_string(),
+            })
+            .to_string(),
         }
     }
 
@@ -493,7 +510,9 @@ impl RunboxInstance {
             let y = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
             InspectRequest::AtPoint { x, y }
         } else if let Some(sel) = target.strip_prefix("selector:") {
-            InspectRequest::BySelector { selector: sel.to_string() }
+            InspectRequest::BySelector {
+                selector: sel.to_string(),
+            }
         } else {
             InspectRequest::Dismiss
         };

@@ -1,17 +1,17 @@
-/// Implementación de skills — ejecuta las tool calls que pide el AI.
-use serde_json::{json, Value};
-use crate::vfs::Vfs;
-use crate::process::ProcessManager;
+use crate::ai::tools::{ToolCall, ToolResult};
 use crate::console::Console;
-use crate::shell::{Command, RuntimeTarget};
+use crate::error::RunboxError;
+use crate::process::ProcessManager;
 use crate::runtime::Runtime;
 use crate::runtime::bun::BunRuntime;
-use crate::runtime::python::PythonRuntime;
 use crate::runtime::git::GitRuntime;
 use crate::runtime::npm::PackageManagerRuntime;
+use crate::runtime::python::PythonRuntime;
 use crate::runtime::shell_builtins::ShellBuiltins;
-use crate::ai::tools::{ToolCall, ToolResult};
-use crate::error::RunboxError;
+use crate::shell::{Command, RuntimeTarget};
+use crate::vfs::Vfs;
+/// Implementación de skills — ejecuta las tool calls que pide el AI.
+use serde_json::{Value, json};
 
 /// Ejecuta una tool call del AI y retorna el resultado.
 pub fn dispatch(
@@ -21,20 +21,24 @@ pub fn dispatch(
     console: &mut Console,
 ) -> ToolResult {
     let content = match call.name.as_str() {
-        "read_file"       => skill_read_file(call, vfs),
-        "write_file"      => skill_write_file(call, vfs),
-        "list_dir"        => skill_list_dir(call, vfs),
-        "exec_command"    => skill_exec_command(call, vfs, pm, console),
-        "search_code"     => skill_search_code(call, vfs),
-        "get_console_logs"=> skill_get_console_logs(call, console),
-        "reload_sandbox"  => skill_reload(call),
-        "install_packages"=> skill_install_packages(call, vfs, pm, console),
-        "get_file_tree"   => skill_file_tree(call, vfs),
+        "read_file" => skill_read_file(call, vfs),
+        "write_file" => skill_write_file(call, vfs),
+        "list_dir" => skill_list_dir(call, vfs),
+        "exec_command" => skill_exec_command(call, vfs, pm, console),
+        "search_code" => skill_search_code(call, vfs),
+        "get_console_logs" => skill_get_console_logs(call, console),
+        "reload_sandbox" => skill_reload(call),
+        "install_packages" => skill_install_packages(call, vfs, pm, console),
+        "get_file_tree" => skill_file_tree(call, vfs),
         other => Err(RunboxError::Runtime(format!("unknown skill: {other}"))),
     };
 
     match content {
-        Ok(value) => ToolResult { name: call.name.clone(), content: value, error: None },
+        Ok(value) => ToolResult {
+            name: call.name.clone(),
+            content: value,
+            error: None,
+        },
         Err(e) => ToolResult {
             name: call.name.clone(),
             content: json!(null),
@@ -53,7 +57,7 @@ fn skill_read_file(call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Value> {
 }
 
 fn skill_write_file(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Result<Value> {
-    let path    = str_arg(&call.arguments, "path")?;
+    let path = str_arg(&call.arguments, "path")?;
     let content = str_arg(&call.arguments, "content")?;
     vfs.write(path, content.as_bytes().to_vec())?;
     Ok(json!({ "path": path, "written": content.len() }))
@@ -76,17 +80,21 @@ fn skill_exec_command(
     let cmd = Command::parse(line)?;
 
     let output = match RuntimeTarget::detect(&cmd) {
-        RuntimeTarget::Bun    => BunRuntime.exec(&cmd, vfs, pm),
+        RuntimeTarget::Bun => BunRuntime.exec(&cmd, vfs, pm),
         RuntimeTarget::Python => PythonRuntime.exec(&cmd, vfs, pm),
-        RuntimeTarget::Git    => GitRuntime.exec(&cmd, vfs, pm),
-        RuntimeTarget::Shell  => ShellBuiltins.exec(&cmd, vfs, pm),
-        RuntimeTarget::Npm    => PackageManagerRuntime::npm().exec(&cmd, vfs, pm),
-        RuntimeTarget::Pnpm   => PackageManagerRuntime::pnpm().exec(&cmd, vfs, pm),
-        RuntimeTarget::Yarn   => PackageManagerRuntime::yarn().exec(&cmd, vfs, pm),
+        RuntimeTarget::Git => GitRuntime.exec(&cmd, vfs, pm),
+        RuntimeTarget::Shell => ShellBuiltins.exec(&cmd, vfs, pm),
+        RuntimeTarget::Npm => PackageManagerRuntime::npm().exec(&cmd, vfs, pm),
+        RuntimeTarget::Pnpm => PackageManagerRuntime::pnpm().exec(&cmd, vfs, pm),
+        RuntimeTarget::Yarn => PackageManagerRuntime::yarn().exec(&cmd, vfs, pm),
         RuntimeTarget::Unknown => Err(RunboxError::Shell(format!(
-            "{}: command not found", cmd.program
+            "{}: command not found",
+            cmd.program
         ))),
-        _ => Err(RunboxError::Shell(format!("{}: command not found", cmd.program))),
+        _ => Err(RunboxError::Shell(format!(
+            "{}: command not found",
+            cmd.program
+        ))),
     }?;
 
     // Ingestar output en consola
@@ -103,8 +111,8 @@ fn skill_exec_command(
 }
 
 fn skill_search_code(call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Value> {
-    let query     = str_arg(&call.arguments, "query")?;
-    let root      = call.arguments["path"].as_str().unwrap_or("/");
+    let query = str_arg(&call.arguments, "query")?;
+    let root = call.arguments["path"].as_str().unwrap_or("/");
     let extension = call.arguments["extension"].as_str();
 
     let mut matches: Vec<Value> = vec![];
@@ -151,7 +159,7 @@ fn search_recursive(vfs: &Vfs, path: &str, query: &str, ext: Option<&str>, out: 
 }
 
 fn skill_get_console_logs(call: &ToolCall, console: &Console) -> crate::error::Result<Value> {
-    let since_id  = call.arguments["since_id"].as_u64();
+    let since_id = call.arguments["since_id"].as_u64();
     let level_str = call.arguments["level"].as_str();
 
     let entries: Vec<_> = match (since_id, level_str) {
@@ -159,11 +167,11 @@ fn skill_get_console_logs(call: &ToolCall, console: &Console) -> crate::error::R
         (None, Some(l)) => {
             use crate::console::LogLevel;
             let level = match l {
-                "info"  => LogLevel::Info,
-                "warn"  => LogLevel::Warn,
+                "info" => LogLevel::Info,
+                "warn" => LogLevel::Warn,
                 "error" => LogLevel::Error,
                 "debug" => LogLevel::Debug,
-                _       => LogLevel::Log,
+                _ => LogLevel::Log,
             };
             console.by_level(&level).into_iter().cloned().collect()
         }
@@ -186,18 +194,31 @@ fn skill_install_packages(
 ) -> crate::error::Result<Value> {
     let packages: Vec<String> = call.arguments["packages"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let dev = call.arguments["dev"].as_bool().unwrap_or(false);
 
-    let manager = call.arguments["manager"].as_str()
+    let manager = call.arguments["manager"]
+        .as_str()
         .unwrap_or_else(|| detect_package_manager(vfs));
 
     let cmd_str = if packages.is_empty() {
         format!("{manager} install")
     } else {
-        let dev_flag = if dev { match manager { "npm" => " --save-dev", "pnpm" | "yarn" => " -D", _ => " --dev" } } else { "" };
+        let dev_flag = if dev {
+            match manager {
+                "npm" => " --save-dev",
+                "pnpm" | "yarn" => " -D",
+                _ => " --dev",
+            }
+        } else {
+            ""
+        };
         format!("{manager} add{dev_flag} {}", packages.join(" "))
     };
 
@@ -205,8 +226,8 @@ fn skill_install_packages(
     let runtime: Box<dyn Runtime> = match manager {
         "pnpm" => Box::new(PackageManagerRuntime::pnpm()),
         "yarn" => Box::new(PackageManagerRuntime::yarn()),
-        "bun"  => Box::new(BunRuntime),
-        _      => Box::new(PackageManagerRuntime::npm()),
+        "bun" => Box::new(BunRuntime),
+        _ => Box::new(PackageManagerRuntime::npm()),
     };
 
     let output = runtime.exec(&cmd, vfs, pm)?;
@@ -221,29 +242,38 @@ fn skill_install_packages(
 }
 
 fn skill_file_tree(call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Value> {
-    let root  = call.arguments["path"].as_str().unwrap_or("/");
+    let root = call.arguments["path"].as_str().unwrap_or("/");
     let depth = call.arguments["depth"].as_u64().unwrap_or(5) as usize;
     Ok(build_tree(vfs, root, depth))
 }
 
 fn build_tree(vfs: &Vfs, path: &str, depth: usize) -> Value {
-    if depth == 0 { return json!(null); }
+    if depth == 0 {
+        return json!(null);
+    }
 
     let entries = match vfs.list(path) {
         Ok(e) => e,
         Err(_) => return json!({ "path": path, "type": "file" }),
     };
 
-    let children: Vec<Value> = entries.iter().map(|name| {
-        let full = if path == "/" { format!("/{name}") } else { format!("{path}/{name}") };
-        if vfs.read(&full).is_ok() {
-            json!({ "name": name, "path": full, "type": "file" })
-        } else {
-            let mut node = json!({ "name": name, "path": full, "type": "dir" });
-            node["children"] = build_tree(vfs, &full, depth - 1);
-            node
-        }
-    }).collect();
+    let children: Vec<Value> = entries
+        .iter()
+        .map(|name| {
+            let full = if path == "/" {
+                format!("/{name}")
+            } else {
+                format!("{path}/{name}")
+            };
+            if vfs.read(&full).is_ok() {
+                json!({ "name": name, "path": full, "type": "file" })
+            } else {
+                let mut node = json!({ "name": name, "path": full, "type": "dir" });
+                node["children"] = build_tree(vfs, &full, depth - 1);
+                node
+            }
+        })
+        .collect();
 
     json!({ "path": path, "type": "dir", "children": children })
 }
@@ -251,14 +281,20 @@ fn build_tree(vfs: &Vfs, path: &str, depth: usize) -> Value {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn str_arg<'a>(args: &'a Value, key: &str) -> crate::error::Result<&'a str> {
-    args[key].as_str().ok_or_else(|| {
-        RunboxError::Runtime(format!("missing argument: {key}"))
-    })
+    args[key]
+        .as_str()
+        .ok_or_else(|| RunboxError::Runtime(format!("missing argument: {key}")))
 }
 
 fn detect_package_manager(vfs: &Vfs) -> &'static str {
-    if vfs.exists("/bun.lockb")        { return "bun";  }
-    if vfs.exists("/pnpm-lock.yaml")   { return "pnpm"; }
-    if vfs.exists("/yarn.lock")        { return "yarn"; }
+    if vfs.exists("/bun.lockb") {
+        return "bun";
+    }
+    if vfs.exists("/pnpm-lock.yaml") {
+        return "pnpm";
+    }
+    if vfs.exists("/yarn.lock") {
+        return "yarn";
+    }
     "npm"
 }

@@ -28,21 +28,42 @@ pub enum SandboxEvent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SandboxCommand {
     /// Ejecutar una línea de shell.
-    Exec { line: String },
+    Exec {
+        line: String,
+    },
     /// Escribir en el stdin de un proceso.
-    Stdin { pid: u32, data: String },
+    Stdin {
+        pid: u32,
+        data: String,
+    },
     /// Matar un proceso.
-    Kill { pid: u32 },
+    Kill {
+        pid: u32,
+    },
     /// Recargar el sandbox.
-    Reload { hard: bool },
+    Reload {
+        hard: bool,
+    },
     /// Entrar/salir de fullscreen.
-    Fullscreen { enable: bool },
+    Fullscreen {
+        enable: bool,
+    },
     /// Inspeccionar el elemento bajo las coordenadas dadas.
-    InspectAt { x: f64, y: f64 },
+    InspectAt {
+        x: f64,
+        y: f64,
+    },
     /// Escribir/leer un archivo del VFS.
-    WriteFile { path: String, content: String },
-    ReadFile  { path: String },
-    ListDir   { path: String },
+    WriteFile {
+        path: String,
+        content: String,
+    },
+    ReadFile {
+        path: String,
+    },
+    ListDir {
+        path: String,
+    },
 }
 
 /// Estado observable del sandbox, serializable a JSON para el browser.

@@ -1,30 +1,35 @@
+use super::protocol::*;
+use crate::console::Console;
+use crate::error::RunboxError;
+use crate::process::ProcessManager;
+use crate::runtime::bun::BunRuntime;
+use crate::runtime::git::GitRuntime;
+use crate::runtime::npm::PackageManagerRuntime;
+use crate::runtime::python::PythonRuntime;
+use crate::runtime::shell_builtins::ShellBuiltins;
+use crate::runtime::{ExecOutput, Runtime};
+use crate::shell::{Command, RuntimeTarget};
+use crate::vfs::Vfs;
 /// MCP Server — RunBox expone sus capacidades como servidor MCP.
 /// Cualquier cliente compatible (Claude Desktop, Cursor, Zed, Continue, etc.)
 /// puede conectarse y usar el VFS, shell, consola, etc.
-use serde_json::{json, Value};
-use crate::vfs::Vfs;
-use crate::process::ProcessManager;
-use crate::console::Console;
-use crate::shell::{Command, RuntimeTarget};
-use crate::runtime::{Runtime, ExecOutput};
-use crate::runtime::bun::BunRuntime;
-use crate::runtime::python::PythonRuntime;
-use crate::runtime::git::GitRuntime;
-use crate::runtime::npm::PackageManagerRuntime;
-use crate::runtime::shell_builtins::ShellBuiltins;
-use crate::error::RunboxError;
-use super::protocol::*;
+use serde_json::{Value, json};
 
 pub struct McpServer {
-    pub vfs:     Vfs,
-    pub pm:      ProcessManager,
+    pub vfs: Vfs,
+    pub pm: ProcessManager,
     pub console: Console,
     initialized: bool,
 }
 
 impl McpServer {
     pub fn new(vfs: Vfs, pm: ProcessManager, console: Console) -> Self {
-        Self { vfs, pm, console, initialized: false }
+        Self {
+            vfs,
+            pm,
+            console,
+            initialized: false,
+        }
     }
 
     /// Punto de entrada: recibe un mensaje JSON y devuelve la respuesta JSON.
@@ -32,11 +37,8 @@ impl McpServer {
         let req = match parse_request(raw) {
             Ok(r) => r,
             Err(e) => {
-                let resp = RpcResponse::err(
-                    RequestId::Number(0),
-                    error_code::PARSE_ERROR,
-                    e.to_string(),
-                );
+                let resp =
+                    RpcResponse::err(RequestId::Number(0), error_code::PARSE_ERROR, e.to_string());
                 return Some(serialize_response(&resp));
             }
         };
@@ -66,18 +68,22 @@ impl McpServer {
         match method {
             "initialize" => self.handle_initialize(params, id),
 
-            "tools/list"  => RpcResponse::ok(id, self.tools_list()),
-            "tools/call"  => self.handle_tool_call(params, id),
+            "tools/list" => RpcResponse::ok(id, self.tools_list()),
+            "tools/call" => self.handle_tool_call(params, id),
 
             "resources/list" => RpcResponse::ok(id, self.resources_list()),
             "resources/read" => self.handle_resource_read(params, id),
 
             "prompts/list" => RpcResponse::ok(id, self.prompts_list()),
-            "prompts/get"  => self.handle_prompt_get(params, id),
+            "prompts/get" => self.handle_prompt_get(params, id),
 
             "ping" => RpcResponse::ok(id, json!({})),
 
-            _ => RpcResponse::err(id, error_code::METHOD_NOT_FOUND, format!("unknown method: {method}")),
+            _ => RpcResponse::err(
+                id,
+                error_code::METHOD_NOT_FOUND,
+                format!("unknown method: {method}"),
+            ),
         }
     }
 
@@ -87,12 +93,16 @@ impl McpServer {
         let result = InitializeResult {
             protocol_version: MCP_VERSION.into(),
             capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability { list_changed: Some(true) }),
+                tools: Some(ToolsCapability {
+                    list_changed: Some(true),
+                }),
                 resources: Some(ResourcesCapability {
                     subscribe: Some(false),
                     list_changed: Some(true),
                 }),
-                prompts: Some(PromptsCapability { list_changed: Some(false) }),
+                prompts: Some(PromptsCapability {
+                    list_changed: Some(false),
+                }),
                 logging: None,
             },
             server_info: Implementation {
@@ -102,7 +112,8 @@ impl McpServer {
             instructions: Some(
                 "RunBox: sandbox de desarrollo con VFS virtual, shell (bun/npm/python/git), \
                  consola de logs e inspector. Usa los tools para leer/escribir archivos, \
-                 ejecutar comandos y consultar la consola.".into()
+                 ejecutar comandos y consultar la consola."
+                    .into(),
             ),
         };
         RpcResponse::ok(id, serde_json::to_value(result).unwrap())
@@ -112,36 +123,53 @@ impl McpServer {
 
     fn tools_list(&self) -> Value {
         let tools: Vec<McpTool> = vec![
-            mcp_tool("exec",        "Ejecuta un comando de shell en el sandbox.",
-                json!({ "type":"object","properties":{ "command":{"type":"string","description":"Comando a ejecutar (bun, npm, python, git, ls, cat...)"} },"required":["command"] })),
-
-            mcp_tool("read_file",   "Lee un archivo del VFS.",
-                json!({ "type":"object","properties":{ "path":{"type":"string"} },"required":["path"] })),
-
-            mcp_tool("write_file",  "Crea o sobreescribe un archivo en el VFS.",
-                json!({ "type":"object","properties":{ "path":{"type":"string"},"content":{"type":"string"} },"required":["path","content"] })),
-
-            mcp_tool("list_dir",    "Lista entradas de un directorio.",
-                json!({ "type":"object","properties":{ "path":{"type":"string","default":"/"} },"required":[] })),
-
-            mcp_tool("remove",      "Elimina un archivo o directorio.",
-                json!({ "type":"object","properties":{ "path":{"type":"string"} },"required":["path"] })),
-
-            mcp_tool("search",      "Busca texto en los archivos del proyecto.",
+            mcp_tool(
+                "exec",
+                "Ejecuta un comando de shell en el sandbox.",
+                json!({ "type":"object","properties":{ "command":{"type":"string","description":"Comando a ejecutar (bun, npm, python, git, ls, cat...)"} },"required":["command"] }),
+            ),
+            mcp_tool(
+                "read_file",
+                "Lee un archivo del VFS.",
+                json!({ "type":"object","properties":{ "path":{"type":"string"} },"required":["path"] }),
+            ),
+            mcp_tool(
+                "write_file",
+                "Crea o sobreescribe un archivo en el VFS.",
+                json!({ "type":"object","properties":{ "path":{"type":"string"},"content":{"type":"string"} },"required":["path","content"] }),
+            ),
+            mcp_tool(
+                "list_dir",
+                "Lista entradas de un directorio.",
+                json!({ "type":"object","properties":{ "path":{"type":"string","default":"/"} },"required":[] }),
+            ),
+            mcp_tool(
+                "remove",
+                "Elimina un archivo o directorio.",
+                json!({ "type":"object","properties":{ "path":{"type":"string"} },"required":["path"] }),
+            ),
+            mcp_tool(
+                "search",
+                "Busca texto en los archivos del proyecto.",
                 json!({ "type":"object","properties":{
                     "query":{"type":"string"},
                     "path":{"type":"string","default":"/"},
                     "ext":{"type":"string","description":"Filtrar por extensión, ej: .ts"}
-                },"required":["query"] })),
-
-            mcp_tool("console_logs","Obtiene entradas de la consola.",
+                },"required":["query"] }),
+            ),
+            mcp_tool(
+                "console_logs",
+                "Obtiene entradas de la consola.",
                 json!({ "type":"object","properties":{
                     "level":{"type":"string","enum":["log","info","warn","error","debug"]},
                     "since_id":{"type":"number"}
-                },"required":[] })),
-
-            mcp_tool("process_list","Lista los procesos activos en el sandbox.",
-                json!({ "type":"object","properties":{},"required":[] })),
+                },"required":[] }),
+            ),
+            mcp_tool(
+                "process_list",
+                "Lista los procesos activos en el sandbox.",
+                json!({ "type":"object","properties":{},"required":[] }),
+            ),
         ];
         json!({ "tools": tools })
     }
@@ -154,12 +182,12 @@ impl McpServer {
         let args = &params["arguments"];
 
         let result = match name {
-            "exec"         => self.tool_exec(args),
-            "read_file"    => self.tool_read_file(args),
-            "write_file"   => self.tool_write_file(args),
-            "list_dir"     => self.tool_list_dir(args),
-            "remove"       => self.tool_remove(args),
-            "search"       => self.tool_search(args),
+            "exec" => self.tool_exec(args),
+            "read_file" => self.tool_read_file(args),
+            "write_file" => self.tool_write_file(args),
+            "list_dir" => self.tool_list_dir(args),
+            "remove" => self.tool_remove(args),
+            "search" => self.tool_search(args),
             "console_logs" => self.tool_console_logs(args),
             "process_list" => self.tool_process_list(),
             other => ToolCallResult::err(format!("unknown tool: {other}")),
@@ -177,14 +205,23 @@ impl McpServer {
         let result: Result<ExecOutput, RunboxError> = (|| {
             let cmd = Command::parse(line)?;
             match RuntimeTarget::detect(&cmd) {
-                RuntimeTarget::Bun    => BunRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Bun => BunRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
                 RuntimeTarget::Python => PythonRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Git    => GitRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Shell  => ShellBuiltins.exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Npm    => PackageManagerRuntime::npm().exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Pnpm   => PackageManagerRuntime::pnpm().exec(&cmd, &mut self.vfs, &mut self.pm),
-                RuntimeTarget::Yarn   => PackageManagerRuntime::yarn().exec(&cmd, &mut self.vfs, &mut self.pm),
-                _ => Err(RunboxError::Shell(format!("{}: command not found", cmd.program))),
+                RuntimeTarget::Git => GitRuntime.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Shell => ShellBuiltins.exec(&cmd, &mut self.vfs, &mut self.pm),
+                RuntimeTarget::Npm => {
+                    PackageManagerRuntime::npm().exec(&cmd, &mut self.vfs, &mut self.pm)
+                }
+                RuntimeTarget::Pnpm => {
+                    PackageManagerRuntime::pnpm().exec(&cmd, &mut self.vfs, &mut self.pm)
+                }
+                RuntimeTarget::Yarn => {
+                    PackageManagerRuntime::yarn().exec(&cmd, &mut self.vfs, &mut self.pm)
+                }
+                _ => Err(RunboxError::Shell(format!(
+                    "{}: command not found",
+                    cmd.program
+                ))),
             }
         })();
 
@@ -193,10 +230,16 @@ impl McpServer {
                 self.console.ingest_process(0, &o.stdout, &o.stderr);
                 let mut text = String::from_utf8_lossy(&o.stdout).to_string();
                 if !o.stderr.is_empty() {
-                    text.push_str(&format!("\n[stderr]\n{}", String::from_utf8_lossy(&o.stderr)));
+                    text.push_str(&format!(
+                        "\n[stderr]\n{}",
+                        String::from_utf8_lossy(&o.stderr)
+                    ));
                 }
                 if o.exit_code != 0 {
-                    return ToolCallResult { content: vec![McpContent::text(text)], is_error: true };
+                    return ToolCallResult {
+                        content: vec![McpContent::text(text)],
+                        is_error: true,
+                    };
                 }
                 ToolCallResult::ok(text)
             }
@@ -216,11 +259,18 @@ impl McpServer {
     }
 
     fn tool_write_file(&mut self, args: &Value) -> ToolCallResult {
-        let path    = match args["path"].as_str()    { Some(p) => p, None => return ToolCallResult::err("missing 'path'") };
-        let content = match args["content"].as_str() { Some(c) => c, None => return ToolCallResult::err("missing 'content'") };
+        let path = match args["path"].as_str() {
+            Some(p) => p,
+            None => return ToolCallResult::err("missing 'path'"),
+        };
+        let content = match args["content"].as_str() {
+            Some(c) => c,
+            None => return ToolCallResult::err("missing 'content'"),
+        };
         match self.vfs.write(path, content.as_bytes().to_vec()) {
             Ok(_) => {
-                self.console.info(format!("file written: {path}"), "mcp/server");
+                self.console
+                    .info(format!("file written: {path}"), "mcp/server");
                 ToolCallResult::ok(format!("OK — written {}", content.len()))
             }
             Err(e) => ToolCallResult::err(e.to_string()),
@@ -239,7 +289,10 @@ impl McpServer {
     }
 
     fn tool_remove(&mut self, args: &Value) -> ToolCallResult {
-        let path = match args["path"].as_str() { Some(p) => p, None => return ToolCallResult::err("missing 'path'") };
+        let path = match args["path"].as_str() {
+            Some(p) => p,
+            None => return ToolCallResult::err("missing 'path'"),
+        };
         match self.vfs.remove(path) {
             Ok(_) => ToolCallResult::ok(format!("removed: {path}")),
             Err(e) => ToolCallResult::err(e.to_string()),
@@ -247,9 +300,12 @@ impl McpServer {
     }
 
     fn tool_search(&self, args: &Value) -> ToolCallResult {
-        let query = match args["query"].as_str() { Some(q) => q, None => return ToolCallResult::err("missing 'query'") };
-        let root  = args["path"].as_str().unwrap_or("/");
-        let ext   = args["ext"].as_str();
+        let query = match args["query"].as_str() {
+            Some(q) => q,
+            None => return ToolCallResult::err("missing 'query'"),
+        };
+        let root = args["path"].as_str().unwrap_or("/");
+        let ext = args["ext"].as_str();
 
         let mut results = vec![];
         search_recursive(&self.vfs, root, query, ext, &mut results);
@@ -270,18 +326,29 @@ impl McpServer {
         let entries: Vec<_> = match (since_id, level_filter) {
             (Some(id), _) => self.console.since(id).into_iter().cloned().collect(),
             (None, Some(l)) => {
-                let lvl = match l { "info" => LogLevel::Info, "warn" => LogLevel::Warn, "error" => LogLevel::Error, "debug" => LogLevel::Debug, _ => LogLevel::Log };
+                let lvl = match l {
+                    "info" => LogLevel::Info,
+                    "warn" => LogLevel::Warn,
+                    "error" => LogLevel::Error,
+                    "debug" => LogLevel::Debug,
+                    _ => LogLevel::Log,
+                };
                 self.console.by_level(&lvl).into_iter().cloned().collect()
             }
             _ => self.console.all().into_iter().cloned().collect(),
         };
 
-        let text = entries.iter()
+        let text = entries
+            .iter()
             .map(|e| format!("[{}] [{}] {}", e.timestamp_ms, e.level, e.message))
             .collect::<Vec<_>>()
             .join("\n");
 
-        ToolCallResult::ok(if text.is_empty() { "(no logs)".into() } else { text })
+        ToolCallResult::ok(if text.is_empty() {
+            "(no logs)".into()
+        } else {
+            text
+        })
     }
 
     fn tool_process_list(&self) -> ToolCallResult {
@@ -289,7 +356,8 @@ impl McpServer {
         if running.is_empty() {
             return ToolCallResult::ok("(no running processes)");
         }
-        let text = running.iter()
+        let text = running
+            .iter()
             .map(|p| format!("pid={} cmd={} {}", p.pid, p.command, p.args.join(" ")))
             .collect::<Vec<_>>()
             .join("\n");
@@ -337,13 +405,11 @@ impl McpServer {
         };
 
         let content = match uri {
-            "runbox://console/logs" => {
-                ResourceContent {
-                    uri: uri.into(),
-                    mime_type: Some("application/json".into()),
-                    text: Some(self.console.to_json()),
-                }
-            }
+            "runbox://console/logs" => ResourceContent {
+                uri: uri.into(),
+                mime_type: Some("application/json".into()),
+                text: Some(self.console.to_json()),
+            },
             "runbox://process/list" => {
                 let list: Vec<_> = self.pm.running().iter().map(|p| {
                     serde_json::json!({ "pid": p.pid, "command": p.command, "args": p.args })
@@ -362,10 +428,18 @@ impl McpServer {
                         mime_type: mime_for(&path),
                         text: Some(String::from_utf8_lossy(b).into_owned()),
                     },
-                    Err(e) => return RpcResponse::err(id, error_code::INTERNAL_ERROR, e.to_string()),
+                    Err(e) => {
+                        return RpcResponse::err(id, error_code::INTERNAL_ERROR, e.to_string());
+                    }
                 }
             }
-            _ => return RpcResponse::err(id, error_code::INVALID_PARAMS, format!("unknown resource: {uri}")),
+            _ => {
+                return RpcResponse::err(
+                    id,
+                    error_code::INVALID_PARAMS,
+                    format!("unknown resource: {uri}"),
+                );
+            }
         };
 
         RpcResponse::ok(id, json!({ "contents": [content] }))
@@ -378,7 +452,11 @@ impl McpServer {
             McpPrompt {
                 name: "explain_file".into(),
                 description: Some("Explica el contenido de un archivo del proyecto".into()),
-                arguments: vec![McpPromptArgument { name: "path".into(), description: Some("Ruta del archivo".into()), required: true }],
+                arguments: vec![McpPromptArgument {
+                    name: "path".into(),
+                    description: Some("Ruta del archivo".into()),
+                    required: true,
+                }],
             },
             McpPrompt {
                 name: "fix_error".into(),
@@ -389,8 +467,16 @@ impl McpServer {
                 name: "scaffold".into(),
                 description: Some("Genera la estructura de un proyecto nuevo".into()),
                 arguments: vec![
-                    McpPromptArgument { name: "type".into(), description: Some("Tipo: bun-api, python-script, fullstack".into()), required: true },
-                    McpPromptArgument { name: "name".into(), description: Some("Nombre del proyecto".into()), required: false },
+                    McpPromptArgument {
+                        name: "type".into(),
+                        description: Some("Tipo: bun-api, python-script, fullstack".into()),
+                        required: true,
+                    },
+                    McpPromptArgument {
+                        name: "name".into(),
+                        description: Some("Nombre del proyecto".into()),
+                        required: false,
+                    },
                 ],
             },
         ];
@@ -407,7 +493,9 @@ impl McpServer {
         let messages = match name {
             "explain_file" => {
                 let path = args["path"].as_str().unwrap_or("/");
-                let content = self.vfs.read(path)
+                let content = self
+                    .vfs
+                    .read(path)
                     .map(|b| String::from_utf8_lossy(b).into_owned())
                     .unwrap_or_else(|_| "(file not found)".into());
                 vec![json!({
@@ -416,8 +504,13 @@ impl McpServer {
                 })]
             }
             "fix_error" => {
-                let logs = self.console.by_level(&crate::console::LogLevel::Error)
-                    .iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("\n");
+                let logs = self
+                    .console
+                    .by_level(&crate::console::LogLevel::Error)
+                    .iter()
+                    .map(|e| e.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 vec![json!({
                     "role": "user",
                     "content": format!("Hay estos errores en la consola del sandbox. Analiza y propone un fix:\n\n```\n{logs}\n```")
@@ -431,7 +524,13 @@ impl McpServer {
                     "content": format!("Genera la estructura completa de un proyecto '{project_type}' llamado '{name}'. Usa los tools write_file para crear cada archivo.")
                 })]
             }
-            other => return RpcResponse::err(id, error_code::INVALID_PARAMS, format!("unknown prompt: {other}")),
+            other => {
+                return RpcResponse::err(
+                    id,
+                    error_code::INVALID_PARAMS,
+                    format!("unknown prompt: {other}"),
+                );
+            }
         };
 
         RpcResponse::ok(id, json!({ "messages": messages }))
@@ -450,28 +549,42 @@ fn mcp_tool(name: &str, description: &str, input_schema: Value) -> McpTool {
 
 fn mime_for(path: &str) -> Option<String> {
     let ext = path.rsplit('.').next()?;
-    Some(match ext {
-        "ts" | "tsx"        => "text/typescript",
-        "js" | "jsx" | "mjs"=> "text/javascript",
-        "json"              => "application/json",
-        "py"                => "text/x-python",
-        "md"                => "text/markdown",
-        "html"              => "text/html",
-        "css"               => "text/css",
-        "toml"              => "text/x-toml",
-        "yaml" | "yml"      => "text/yaml",
-        "sh" | "bash"       => "text/x-sh",
-        "txt"               => "text/plain",
-        _                   => "application/octet-stream",
-    }.into())
+    Some(
+        match ext {
+            "ts" | "tsx" => "text/typescript",
+            "js" | "jsx" | "mjs" => "text/javascript",
+            "json" => "application/json",
+            "py" => "text/x-python",
+            "md" => "text/markdown",
+            "html" => "text/html",
+            "css" => "text/css",
+            "toml" => "text/x-toml",
+            "yaml" | "yml" => "text/yaml",
+            "sh" | "bash" => "text/x-sh",
+            "txt" => "text/plain",
+            _ => "application/octet-stream",
+        }
+        .into(),
+    )
 }
 
 fn search_recursive(vfs: &Vfs, path: &str, query: &str, ext: Option<&str>, out: &mut Vec<String>) {
-    let entries = match vfs.list(path) { Ok(e) => e, Err(_) => return };
+    let entries = match vfs.list(path) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
     for entry in entries {
-        let full = if path == "/" { format!("/{entry}") } else { format!("{path}/{entry}") };
+        let full = if path == "/" {
+            format!("/{entry}")
+        } else {
+            format!("{path}/{entry}")
+        };
         if let Ok(bytes) = vfs.read(&full) {
-            if let Some(e) = ext { if !entry.ends_with(e) { continue; } }
+            if let Some(e) = ext {
+                if !entry.ends_with(e) {
+                    continue;
+                }
+            }
             let text = String::from_utf8_lossy(bytes);
             for (i, line) in text.lines().enumerate() {
                 if line.contains(query) {

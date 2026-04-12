@@ -1,14 +1,14 @@
 pub mod bun;
-pub mod python;
 pub mod git;
-pub mod npm;
-pub mod shell_builtins;
 pub mod js_engine;
+pub mod npm;
+pub mod python;
+pub mod shell_builtins;
 
 use crate::error::Result;
-use crate::vfs::Vfs;
 use crate::process::ProcessManager;
 use crate::shell::Command;
+use crate::vfs::Vfs;
 
 #[derive(Debug, Clone)]
 pub struct ExecOutput {

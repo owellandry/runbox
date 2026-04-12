@@ -44,7 +44,12 @@ pub struct RpcResponse {
 
 impl RpcResponse {
     pub fn ok(id: RequestId, result: Value) -> Self {
-        Self { jsonrpc: JSONRPC_VERSION.into(), id, result: Some(result), error: None }
+        Self {
+            jsonrpc: JSONRPC_VERSION.into(),
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
 
     pub fn err(id: RequestId, code: i32, message: impl Into<String>) -> Self {
@@ -52,7 +57,11 @@ impl RpcResponse {
             jsonrpc: JSONRPC_VERSION.into(),
             id,
             result: None,
-            error: Some(RpcError { code, message: message.into(), data: None }),
+            error: Some(RpcError {
+                code,
+                message: message.into(),
+                data: None,
+            }),
         }
     }
 }
@@ -67,11 +76,11 @@ pub struct RpcError {
 
 /// Códigos de error estándar JSON-RPC.
 pub mod error_code {
-    pub const PARSE_ERROR:      i32 = -32700;
-    pub const INVALID_REQUEST:  i32 = -32600;
+    pub const PARSE_ERROR: i32 = -32700;
+    pub const INVALID_REQUEST: i32 = -32600;
     pub const METHOD_NOT_FOUND: i32 = -32601;
-    pub const INVALID_PARAMS:   i32 = -32602;
-    pub const INTERNAL_ERROR:   i32 = -32603;
+    pub const INVALID_PARAMS: i32 = -32602;
+    pub const INTERNAL_ERROR: i32 = -32603;
 }
 
 // ── MCP — Tipos de capacidades ────────────────────────────────────────────────
@@ -121,9 +130,17 @@ pub struct McpPromptArgument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum McpContent {
-    Text { text: String },
-    Image { data: String, #[serde(rename = "mimeType")] mime_type: String },
-    Resource { resource: EmbeddedResource },
+    Text {
+        text: String,
+    },
+    Image {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
+    Resource {
+        resource: EmbeddedResource,
+    },
 }
 
 impl McpContent {
@@ -235,11 +252,17 @@ pub struct ToolCallResult {
 
 impl ToolCallResult {
     pub fn ok(text: impl Into<String>) -> Self {
-        Self { content: vec![McpContent::text(text)], is_error: false }
+        Self {
+            content: vec![McpContent::text(text)],
+            is_error: false,
+        }
     }
 
     pub fn err(text: impl Into<String>) -> Self {
-        Self { content: vec![McpContent::text(text)], is_error: true }
+        Self {
+            content: vec![McpContent::text(text)],
+            is_error: true,
+        }
     }
 }
 

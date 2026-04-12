@@ -1,10 +1,10 @@
+use super::protocol::*;
+use crate::error::{Result, RunboxError};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 /// MCP Client — RunBox se conecta a servidores MCP externos.
 /// Permite usar tools de cualquier servidor MCP (filesystem, databases, APIs, etc.)
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use crate::error::{Result, RunboxError};
-use super::protocol::*;
 
 /// Configuración de un servidor MCP externo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,9 +34,7 @@ pub enum TransportConfig {
         headers: HashMap<String, String>,
     },
     /// WebSocket
-    WebSocket {
-        url: String,
-    },
+    WebSocket { url: String },
 }
 
 /// Estado de la conexión con un servidor MCP.
@@ -51,26 +49,26 @@ pub enum ConnectionState {
 /// Capacidades que un servidor MCP externo anunció.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RemoteCapabilities {
-    pub tools:     Vec<McpTool>,
+    pub tools: Vec<McpTool>,
     pub resources: Vec<McpResource>,
-    pub prompts:   Vec<McpPrompt>,
+    pub prompts: Vec<McpPrompt>,
     pub server_info: Option<Implementation>,
 }
 
 /// Cliente de un servidor MCP individual.
 pub struct McpClient {
     pub config: McpServerConfig,
-    pub state:  ConnectionState,
-    pub caps:   RemoteCapabilities,
-    next_id:    i64,
+    pub state: ConnectionState,
+    pub caps: RemoteCapabilities,
+    next_id: i64,
 }
 
 impl McpClient {
     pub fn new(config: McpServerConfig) -> Self {
         Self {
             config,
-            state:   ConnectionState::Disconnected,
-            caps:    RemoteCapabilities::default(),
+            state: ConnectionState::Disconnected,
+            caps: RemoteCapabilities::default(),
             next_id: 1,
         }
     }
@@ -80,11 +78,14 @@ impl McpClient {
     pub fn initialize(&mut self) -> Result<()> {
         self.state = ConnectionState::Connecting;
 
-        let _req = self.build_request("initialize", json!({
-            "protocolVersion": MCP_VERSION,
-            "capabilities": { "roots": { "listChanged": false } },
-            "clientInfo": { "name": "runbox", "version": env!("CARGO_PKG_VERSION") }
-        }));
+        let _req = self.build_request(
+            "initialize",
+            json!({
+                "protocolVersion": MCP_VERSION,
+                "capabilities": { "roots": { "listChanged": false } },
+                "clientInfo": { "name": "runbox", "version": env!("CARGO_PKG_VERSION") }
+            }),
+        );
 
         // TODO: enviar _req por el transporte y parsear InitializeResult
         // Por ahora marcamos como conectado para poder registrar el servidor
@@ -96,19 +97,24 @@ impl McpClient {
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<ToolCallResult> {
         if self.state != ConnectionState::Connected {
             return Err(RunboxError::Runtime(format!(
-                "MCP server '{}' is not connected", self.config.name
+                "MCP server '{}' is not connected",
+                self.config.name
             )));
         }
 
-        let _req = self.build_request("tools/call", json!({
-            "name": name,
-            "arguments": arguments
-        }));
+        let _req = self.build_request(
+            "tools/call",
+            json!({
+                "name": name,
+                "arguments": arguments
+            }),
+        );
 
         // TODO: enviar por transporte y deserializar respuesta
         // Stub que retorna un resultado placeholder
         Ok(ToolCallResult::ok(format!(
-            "[stub] tool '{}' called on server '{}'", name, self.config.name
+            "[stub] tool '{}' called on server '{}'",
+            name, self.config.name
         )))
     }
 
@@ -116,13 +122,17 @@ impl McpClient {
     pub fn read_resource(&mut self, uri: &str) -> Result<String> {
         if self.state != ConnectionState::Connected {
             return Err(RunboxError::Runtime(format!(
-                "MCP server '{}' is not connected", self.config.name
+                "MCP server '{}' is not connected",
+                self.config.name
             )));
         }
 
         let _req = self.build_request("resources/read", json!({ "uri": uri }));
         // TODO: enviar por transporte
-        Ok(format!("[stub] resource '{uri}' from server '{}'", self.config.name))
+        Ok(format!(
+            "[stub] resource '{uri}' from server '{}'",
+            self.config.name
+        ))
     }
 
     fn build_request(&mut self, method: &str, params: Value) -> RpcRequest {

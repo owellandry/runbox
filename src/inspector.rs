@@ -49,9 +49,9 @@ pub struct BoxModel {
     pub y: f64,
     pub width: f64,
     pub height: f64,
-    pub margin:  Spacing,
+    pub margin: Spacing,
     pub padding: Spacing,
-    pub border:  Spacing,
+    pub border: Spacing,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,30 +118,63 @@ pub struct SourceLocation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HighlightOverlay {
     pub node_id: u64,
-    pub content_box:  OverlayRect,
-    pub padding_box:  OverlayRect,
-    pub border_box:   OverlayRect,
-    pub margin_box:   OverlayRect,
+    pub content_box: OverlayRect,
+    pub padding_box: OverlayRect,
+    pub border_box: OverlayRect,
+    pub margin_box: OverlayRect,
     pub tooltip: HighlightTooltip,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OverlayRect {
-    pub x: f64, pub y: f64,
-    pub width: f64, pub height: f64,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
     pub color: OverlayColor,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OverlayColor {
-    pub r: u8, pub g: u8, pub b: u8, pub a: f64,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: f64,
 }
 
 impl OverlayColor {
-    pub fn content() -> Self { Self { r: 111, g: 168, b: 220, a: 0.66 } }
-    pub fn padding() -> Self { Self { r: 147, g: 196, b: 125, a: 0.55 } }
-    pub fn border()  -> Self { Self { r: 255, g: 229, b: 153, a: 0.66 } }
-    pub fn margin()  -> Self { Self { r: 246, g: 178, b: 107, a: 0.66 } }
+    pub fn content() -> Self {
+        Self {
+            r: 111,
+            g: 168,
+            b: 220,
+            a: 0.66,
+        }
+    }
+    pub fn padding() -> Self {
+        Self {
+            r: 147,
+            g: 196,
+            b: 125,
+            a: 0.55,
+        }
+    }
+    pub fn border() -> Self {
+        Self {
+            r: 255,
+            g: 229,
+            b: 153,
+            a: 0.66,
+        }
+    }
+    pub fn margin() -> Self {
+        Self {
+            r: 246,
+            g: 178,
+            b: 107,
+            a: 0.66,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,7 +182,7 @@ pub struct HighlightTooltip {
     pub tag: String,
     pub id: Option<String>,
     pub classes: Vec<String>,
-    pub size: String,  // "320 × 48"
+    pub size: String, // "320 × 48"
 }
 
 impl HighlightOverlay {
@@ -163,29 +196,58 @@ impl HighlightOverlay {
 
         // content box
         let cx = bm.x + bm.padding.left + bm.border.left;
-        let cy = bm.y + bm.padding.top  + bm.border.top;
-        let cw = bm.width  - bm.padding.left - bm.padding.right - bm.border.left - bm.border.right;
-        let ch = bm.height - bm.padding.top  - bm.padding.bottom - bm.border.top  - bm.border.bottom;
+        let cy = bm.y + bm.padding.top + bm.border.top;
+        let cw = bm.width - bm.padding.left - bm.padding.right - bm.border.left - bm.border.right;
+        let ch = bm.height - bm.padding.top - bm.padding.bottom - bm.border.top - bm.border.bottom;
 
         // padding box (content + padding)
         let px = bm.x + bm.border.left;
         let py = bm.y + bm.border.top;
-        let pw = bm.width  - bm.border.left - bm.border.right;
-        let ph = bm.height - bm.border.top  - bm.border.bottom;
+        let pw = bm.width - bm.border.left - bm.border.right;
+        let ph = bm.height - bm.border.top - bm.border.bottom;
 
         // margin box (full box + margin)
         let mx = bm.x - bm.margin.left;
         let my = bm.y - bm.margin.top;
-        let mw = bm.width  + bm.margin.left + bm.margin.right;
-        let mh = bm.height + bm.margin.top  + bm.margin.bottom;
+        let mw = bm.width + bm.margin.left + bm.margin.right;
+        let mh = bm.height + bm.margin.top + bm.margin.bottom;
 
         Self {
             node_id: node.id,
-            content_box: OverlayRect { x: cx, y: cy, width: cw,       height: ch,       color: OverlayColor::content() },
-            padding_box: OverlayRect { x: px, y: py, width: pw,       height: ph,       color: OverlayColor::padding() },
-            border_box:  OverlayRect { x: bm.x, y: bm.y, width: bm.width, height: bm.height, color: OverlayColor::border() },
-            margin_box:  OverlayRect { x: mx, y: my, width: mw,       height: mh,       color: OverlayColor::margin() },
-            tooltip: HighlightTooltip { tag, id, classes, size },
+            content_box: OverlayRect {
+                x: cx,
+                y: cy,
+                width: cw,
+                height: ch,
+                color: OverlayColor::content(),
+            },
+            padding_box: OverlayRect {
+                x: px,
+                y: py,
+                width: pw,
+                height: ph,
+                color: OverlayColor::padding(),
+            },
+            border_box: OverlayRect {
+                x: bm.x,
+                y: bm.y,
+                width: bm.width,
+                height: bm.height,
+                color: OverlayColor::border(),
+            },
+            margin_box: OverlayRect {
+                x: mx,
+                y: my,
+                width: mw,
+                height: mh,
+                color: OverlayColor::margin(),
+            },
+            tooltip: HighlightTooltip {
+                tag,
+                id,
+                classes,
+                size,
+            },
         }
     }
 }
@@ -201,10 +263,16 @@ pub struct InspectorSession {
 }
 
 impl InspectorSession {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-    pub fn activate(&mut self) { self.active = true; }
-    pub fn deactivate(&mut self) { self.active = false; }
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
 
     pub fn set_node(&mut self, node: InspectedNode) {
         self.history.push(node.clone());

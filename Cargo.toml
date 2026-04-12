@@ -1,6 +1,6 @@
 [package]
 name = "runbox"
-version = "0.3.3"
+version = "0.3.6"
 edition = "2024"
 
 [lib]
@@ -56,3 +56,10 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "core_bench"
+harness = false

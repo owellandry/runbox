@@ -1,6 +1,6 @@
+use crate::vfs::{ChangeKind, FileChange};
 /// Hot Reload — detecta cambios en el VFS y decide la estrategia de recarga.
 use serde::{Deserialize, Serialize};
-use crate::vfs::{FileChange, ChangeKind};
 
 // ── Estrategia de recarga ─────────────────────────────────────────────────────
 
@@ -52,7 +52,11 @@ pub struct Debouncer {
 
 impl Debouncer {
     pub fn new(window_ms: u64) -> Self {
-        Self { pending: Vec::new(), window_ms, last_change_ms: 0 }
+        Self {
+            pending: Vec::new(),
+            window_ms,
+            last_change_ms: 0,
+        }
     }
 
     /// Añade un cambio. Retorna true si el batch está listo para procesar.
@@ -83,7 +87,9 @@ pub struct HotReloader {
 impl HotReloader {
     /// `debounce_ms`: cuántos ms esperar después del último cambio antes de recargar.
     pub fn new(debounce_ms: u64) -> Self {
-        Self { debouncer: Debouncer::new(debounce_ms) }
+        Self {
+            debouncer: Debouncer::new(debounce_ms),
+        }
     }
 
     /// Alimenta los cambios del VFS. Retorna la acción si el debounce expiró.
@@ -119,9 +125,9 @@ impl HotReloader {
 
 /// Decide la acción mínima necesaria para el batch de cambios.
 fn decide_action(changes: &[FileChange]) -> ReloadAction {
-    let mut css_paths   = vec![];
-    let mut hmr_paths   = vec![];
-    let mut needs_full  = false;
+    let mut css_paths = vec![];
+    let mut hmr_paths = vec![];
+    let mut needs_full = false;
 
     for change in changes {
         // Las eliminaciones siempre requieren recarga completa
@@ -130,10 +136,13 @@ fn decide_action(changes: &[FileChange]) -> ReloadAction {
             break;
         }
         match classify(&change.path) {
-            FileImpact::Css    => css_paths.push(change.path.clone()),
+            FileImpact::Css => css_paths.push(change.path.clone()),
             FileImpact::Script => hmr_paths.push(change.path.clone()),
-            FileImpact::Markup | FileImpact::Config => { needs_full = true; break; }
-            FileImpact::Asset  => {} // ignorar
+            FileImpact::Markup | FileImpact::Config => {
+                needs_full = true;
+                break;
+            }
+            FileImpact::Asset => {} // ignorar
         }
     }
 
@@ -157,7 +166,10 @@ mod tests {
     use super::*;
 
     fn change(path: &str, kind: ChangeKind) -> FileChange {
-        FileChange { path: path.to_string(), kind }
+        FileChange {
+            path: path.to_string(),
+            kind,
+        }
     }
 
     #[test]

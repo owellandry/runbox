@@ -32,7 +32,11 @@ impl Command {
         }
 
         let program = tokens.remove(0);
-        Ok(Self { program, args: tokens, env })
+        Ok(Self {
+            program,
+            args: tokens,
+            env,
+        })
     }
 }
 
@@ -46,23 +50,24 @@ pub enum RuntimeTarget {
     Npm,
     Pnpm,
     Yarn,
-    Shell,   // builtins: cd, ls, echo, cat, ...
+    Shell, // builtins: cd, ls, echo, cat, ...
     Unknown,
 }
 
 impl RuntimeTarget {
     pub fn detect(cmd: &Command) -> Self {
         match cmd.program.as_str() {
-            "bun" | "bunx"                              => Self::Bun,
-            "python" | "python3" | "pip" | "pip3"      => Self::Python,
-            "git"                                       => Self::Git,
-            "curl" | "wget"                             => Self::Curl,
-            "npm" | "npx"                               => Self::Npm,
-            "pnpm" | "pnpx"                             => Self::Pnpm,
-            "yarn"                                      => Self::Yarn,
-            "cd" | "ls" | "echo" | "cat" | "pwd"
-            | "mkdir" | "rm" | "cp" | "mv" | "touch"   => Self::Shell,
-            _                                           => Self::Unknown,
+            "bun" | "bunx" => Self::Bun,
+            "python" | "python3" | "pip" | "pip3" => Self::Python,
+            "git" => Self::Git,
+            "curl" | "wget" => Self::Curl,
+            "npm" | "npx" => Self::Npm,
+            "pnpm" | "pnpx" => Self::Pnpm,
+            "yarn" => Self::Yarn,
+            "cd" | "ls" | "echo" | "cat" | "pwd" | "mkdir" | "rm" | "cp" | "mv" | "touch" => {
+                Self::Shell
+            }
+            _ => Self::Unknown,
         }
     }
 }
@@ -111,7 +116,10 @@ mod tests {
     #[test]
     fn parse_with_env() {
         let cmd = Command::parse("NODE_ENV=production bun run build.ts").unwrap();
-        assert_eq!(cmd.env, vec![("NODE_ENV".to_string(), "production".to_string())]);
+        assert_eq!(
+            cmd.env,
+            vec![("NODE_ENV".to_string(), "production".to_string())]
+        );
         assert_eq!(cmd.program, "bun");
     }
 

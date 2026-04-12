@@ -1,7 +1,7 @@
+use crate::process::Pid;
+use serde::{Deserialize, Serialize};
 /// Sistema de logs de consola — captura output estructurado de todos los procesos.
 use std::collections::VecDeque;
-use serde::{Deserialize, Serialize};
-use crate::process::Pid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -16,9 +16,9 @@ pub enum LogLevel {
 impl std::fmt::Display for LogLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            LogLevel::Log   => "log",
-            LogLevel::Info  => "info",
-            LogLevel::Warn  => "warn",
+            LogLevel::Log => "log",
+            LogLevel::Info => "info",
+            LogLevel::Warn => "warn",
             LogLevel::Error => "error",
             LogLevel::Debug => "debug",
         };
@@ -57,7 +57,13 @@ impl Console {
         }
     }
 
-    pub fn push(&mut self, level: LogLevel, message: impl Into<String>, source: impl Into<String>, pid: Option<Pid>) -> u64 {
+    pub fn push(
+        &mut self,
+        level: LogLevel,
+        message: impl Into<String>,
+        source: impl Into<String>,
+        pid: Option<Pid>,
+    ) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -77,11 +83,21 @@ impl Console {
         id
     }
 
-    pub fn log  (&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 { self.push(LogLevel::Log,   msg, src, None) }
-    pub fn info (&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 { self.push(LogLevel::Info,  msg, src, None) }
-    pub fn warn (&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 { self.push(LogLevel::Warn,  msg, src, None) }
-    pub fn error(&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 { self.push(LogLevel::Error, msg, src, None) }
-    pub fn debug(&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 { self.push(LogLevel::Debug, msg, src, None) }
+    pub fn log(&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 {
+        self.push(LogLevel::Log, msg, src, None)
+    }
+    pub fn info(&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 {
+        self.push(LogLevel::Info, msg, src, None)
+    }
+    pub fn warn(&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 {
+        self.push(LogLevel::Warn, msg, src, None)
+    }
+    pub fn error(&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 {
+        self.push(LogLevel::Error, msg, src, None)
+    }
+    pub fn debug(&mut self, msg: impl Into<String>, src: impl Into<String>) -> u64 {
+        self.push(LogLevel::Debug, msg, src, None)
+    }
 
     /// Ingesta la salida de un proceso (stdout/stderr) como entradas de log.
     pub fn ingest_process(&mut self, pid: Pid, stdout: &[u8], stderr: &[u8]) {

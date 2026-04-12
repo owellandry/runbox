@@ -2,7 +2,7 @@
 /// Compatible con OpenAI (function calling), Anthropic (tool use),
 /// Google Gemini, Mistral, Cohere, y cualquier proveedor que siga el estándar.
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Descripción de un tool que el AI puede invocar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,23 +45,33 @@ pub fn all_tools() -> Vec<ToolDef> {
 
 /// Serializa los tools al formato OpenAI (functions array).
 pub fn to_openai_format(tools: &[ToolDef]) -> Value {
-    json!(tools.iter().map(|t| json!({
-        "type": "function",
-        "function": {
-            "name": t.name,
-            "description": t.description,
-            "parameters": t.parameters,
-        }
-    })).collect::<Vec<_>>())
+    json!(
+        tools
+            .iter()
+            .map(|t| json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            }))
+            .collect::<Vec<_>>()
+    )
 }
 
 /// Serializa los tools al formato Anthropic (tools array).
 pub fn to_anthropic_format(tools: &[ToolDef]) -> Value {
-    json!(tools.iter().map(|t| json!({
-        "name": t.name,
-        "description": t.description,
-        "input_schema": t.parameters,
-    })).collect::<Vec<_>>())
+    json!(
+        tools
+            .iter()
+            .map(|t| json!({
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.parameters,
+            }))
+            .collect::<Vec<_>>()
+    )
 }
 
 /// Serializa los tools al formato Gemini (function_declarations).
