@@ -143,6 +143,7 @@ fn lock_filename(pm: &str) -> &'static str {
     match pm {
         "pnpm" => "pnpm-lock.yaml",
         "yarn" => "yarn.lock",
+        "bun" => "bun.lock",
         _ => "package-lock.json",
     }
 }

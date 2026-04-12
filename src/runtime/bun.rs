@@ -17,6 +17,17 @@ impl Runtime for BunRuntime {
     }
 
     fn exec(&self, cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+        if matches!(cmd.program.as_str(), "node" | "nodejs" | "tsx" | "ts-node") {
+            let mut args = vec!["run".to_string()];
+            args.extend(cmd.args.clone());
+            let shimmed = Command {
+                program: "bun".into(),
+                args,
+                env: cmd.env.clone(),
+            };
+            return bun_run(&shimmed, vfs, pm);
+        }
+
         let subcommand = cmd.args.first().map(String::as_str).unwrap_or("");
 
         match subcommand {

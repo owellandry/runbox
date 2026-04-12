@@ -57,7 +57,7 @@ pub enum RuntimeTarget {
 impl RuntimeTarget {
     pub fn detect(cmd: &Command) -> Self {
         match cmd.program.as_str() {
-            "bun" | "bunx" => Self::Bun,
+            "bun" | "bunx" | "node" | "nodejs" | "tsx" | "ts-node" => Self::Bun,
             "python" | "python3" | "pip" | "pip3" => Self::Python,
             "git" => Self::Git,
             "curl" | "wget" => Self::Curl,
@@ -130,5 +130,8 @@ mod tests {
 
         let cmd = Command::parse("git clone https://github.com/foo/bar").unwrap();
         assert_eq!(RuntimeTarget::detect(&cmd), RuntimeTarget::Git);
+
+        let cmd = Command::parse("node index.js").unwrap();
+        assert_eq!(RuntimeTarget::detect(&cmd), RuntimeTarget::Bun);
     }
 }

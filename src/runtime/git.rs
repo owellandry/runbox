@@ -121,6 +121,7 @@ impl Runtime for GitRuntime {
             "diff" => git_diff(cmd, vfs, pm),
             "branch" => git_branch(cmd, vfs, pm),
             "checkout" => git_checkout(cmd, vfs, pm),
+            "merge" => git_merge(cmd, vfs, pm),
             "reset" => git_reset(cmd, vfs, pm),
             "clone" => git_clone(cmd, vfs, pm),
             "fetch" => git_fetch(cmd, vfs, pm),
@@ -589,6 +590,69 @@ fn git_reset(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Ex
     Ok(ok_out("Unstaged changes after reset"))
 }
 
+fn git_merge(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+    if !vfs.exists("/.git/HEAD") {
+        return Ok(err_out("fatal: not a git repository"));
+    }
+
+    let target = match cmd.args.get(1) {
+        Some(t) => t.clone(),
+        None => return Ok(err_out("git merge: specify a branch to merge")),
+    };
+
+    let current = current_branch(vfs).unwrap_or_else(|| "main".into());
+    let pid = pm.spawn("git", cmd.args.clone());
+
+    if target == current {
+        pm.exit(pid, 0)?;
+        return Ok(ok_out("Already up to date."));
+    }
+
+    let target_ref = format!("/.git/refs/heads/{target}");
+    if !vfs.exists(&target_ref) {
+        pm.exit(pid, 1)?;
+        return Ok(err_out(format!("merge: branch '{target}' not found")));
+    }
+
+    let target_sha = vfs
+        .read(&target_ref)
+        .ok()
+        .map(|b| String::from_utf8_lossy(b).trim().to_string())
+        .unwrap_or_default();
+    let current_sha = head_sha(vfs).unwrap_or_default();
+
+    if target_sha.is_empty() || target_sha == current_sha {
+        pm.exit(pid, 0)?;
+        return Ok(ok_out("Already up to date."));
+    }
+
+    let log = load_log(vfs);
+    let target_commit = match log.iter().find(|c| c.sha == target_sha) {
+        Some(c) => c,
+        None => {
+            pm.exit(pid, 1)?;
+            return Ok(err_out(format!("merge: commit {target_sha} not found")));
+        }
+    };
+
+    // Simulación de merge fast-forward: mover HEAD actual al commit de la rama objetivo.
+    vfs.write(
+        &format!("/.git/refs/heads/{current}"),
+        format!("{target_sha}\n").into_bytes(),
+    )?;
+
+    let mut index = Index::load(vfs);
+    index.staged = target_commit.tree.clone();
+    index.save(vfs)?;
+
+    pm.exit(pid, 0)?;
+    Ok(ok_out(format!(
+        "Updating {old}..{new}\nFast-forward\n",
+        old = &current_sha[..7.min(current_sha.len())],
+        new = &target_sha[..7.min(target_sha.len())],
+    )))
+}
+
 // ── Operaciones de red ────────────────────────────────────────────────────────
 
 fn git_clone(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
@@ -674,6 +738,16 @@ fn git_pull(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
         env: vec![],
     };
     let fetch_out = git_fetch(&fetch_cmd, vfs, pm)?;
+
+    if fetch_out.exit_code != 0 {
+        let pid = pm.spawn("git", cmd.args.clone());
+        pm.exit(pid, 1)?;
+        return Ok(ExecOutput {
+            stdout: fetch_out.stdout,
+            stderr: fetch_out.stderr,
+            exit_code: 1,
+        });
+    }
 
     let pid = pm.spawn("git", cmd.args.clone());
     pm.exit(pid, 0)?;
@@ -1247,5 +1321,55 @@ mod tests {
             .unwrap();
         assert_eq!(out.exit_code, 0);
         assert_eq!(current_branch(&vfs).unwrap(), "feature");
+    }
+
+    #[test]
+    fn merge_fast_forward_updates_head() {
+        let mut vfs = Vfs::new();
+        let mut pm = pm();
+        let rt = GitRuntime;
+
+        rt.exec(&cmd("git init"), &mut vfs, &mut pm).unwrap();
+        vfs.write("/file.txt", b"v1".to_vec()).unwrap();
+        rt.exec(&cmd("git add ."), &mut vfs, &mut pm).unwrap();
+        rt.exec(&cmd(r#"git commit -m "base""#), &mut vfs, &mut pm)
+            .unwrap();
+
+        rt.exec(&cmd("git branch feature"), &mut vfs, &mut pm)
+            .unwrap();
+        rt.exec(&cmd("git checkout feature"), &mut vfs, &mut pm)
+            .unwrap();
+        vfs.write("/file.txt", b"v2".to_vec()).unwrap();
+        rt.exec(&cmd("git add ."), &mut vfs, &mut pm).unwrap();
+        rt.exec(&cmd(r#"git commit -m "feature""#), &mut vfs, &mut pm)
+            .unwrap();
+
+        rt.exec(&cmd("git checkout main"), &mut vfs, &mut pm)
+            .unwrap();
+        let out = rt
+            .exec(&cmd("git merge feature"), &mut vfs, &mut pm)
+            .unwrap();
+        assert_eq!(out.exit_code, 0);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("Fast-forward") || stdout.contains("Already up to date"));
+    }
+
+    #[test]
+    fn push_without_remote_fails() {
+        let mut vfs = Vfs::new();
+        let mut pm = pm();
+        let rt = GitRuntime;
+
+        rt.exec(&cmd("git init"), &mut vfs, &mut pm).unwrap();
+        vfs.write("/file.txt", b"v1".to_vec()).unwrap();
+        rt.exec(&cmd("git add ."), &mut vfs, &mut pm).unwrap();
+        rt.exec(&cmd(r#"git commit -m "base""#), &mut vfs, &mut pm)
+            .unwrap();
+
+        let out = rt.exec(&cmd("git push"), &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.exit_code, 1);
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("does not appear to be a git repository")
+        );
     }
 }

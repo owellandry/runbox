@@ -1,4 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use runbox::process::ProcessManager;
+use runbox::runtime::Runtime;
+use runbox::runtime::git::GitRuntime;
 use runbox::runtime::js_engine::strip_typescript;
 use runbox::shell::Command;
 use runbox::vfs::Vfs;
@@ -62,10 +65,50 @@ fn bench_vfs_read_write(c: &mut Criterion) {
     });
 }
 
+fn bench_git_status_small_repo(c: &mut Criterion) {
+    c.bench_function("git_status_small_repo", |b| {
+        b.iter(|| {
+            let mut vfs = Vfs::new();
+            let mut pm = ProcessManager::new();
+            let rt = GitRuntime;
+
+            rt.exec(
+                &Command::parse("git init").expect("parse git init"),
+                &mut vfs,
+                &mut pm,
+            )
+            .expect("git init");
+            vfs.write("/src/main.ts", b"console.log('hi')".to_vec())
+                .expect("write source");
+            rt.exec(
+                &Command::parse("git add .").expect("parse git add"),
+                &mut vfs,
+                &mut pm,
+            )
+            .expect("git add");
+            rt.exec(
+                &Command::parse(r#"git commit -m "bench""#).expect("parse git commit"),
+                &mut vfs,
+                &mut pm,
+            )
+            .expect("git commit");
+            let out = rt
+                .exec(
+                    &Command::parse("git status").expect("parse git status"),
+                    &mut vfs,
+                    &mut pm,
+                )
+                .expect("git status");
+            black_box(out.stdout.len());
+        });
+    });
+}
+
 criterion_group!(
     core_benchmarks,
     bench_command_parse,
     bench_strip_typescript,
-    bench_vfs_read_write
+    bench_vfs_read_write,
+    bench_git_status_small_repo
 );
 criterion_main!(core_benchmarks);
