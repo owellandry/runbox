@@ -419,18 +419,58 @@ fn pm_run(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager, pm_name: &str) 
     let pkg = PackageJson::load(vfs)
         .ok_or_else(|| RunboxError::NotFound("package.json".into()))?;
 
-    let script_cmd = pkg.scripts.get(script_name.as_str())
+    let script_cmd_str = pkg.scripts.get(script_name.as_str())
         .ok_or_else(|| RunboxError::Runtime(format!(
             r#"missing script: "{script_name}"\n\nAvailable scripts:\n{}"#,
             pkg.scripts.keys().map(|k| format!("  {k}")).collect::<Vec<_>>().join("\n")
-        )))?;
+        )))?.clone();
+
+    let header = format!(
+        "> {}@{} {}\n> {}\n",
+        pkg.name.as_deref().unwrap_or("app"),
+        pkg.version.as_deref().unwrap_or("0.0.0"),
+        script_name,
+        script_cmd_str,
+    );
+
+    // Ejecutar el script real parseando y despachando el comando
+    let result = run_script_command(&script_cmd_str, vfs, pm)?;
 
     let pid = pm.spawn(pm_name, cmd.args.clone());
-    pm.exit(pid, 0)?;
-    Ok(ok_out(format!("> {pkg_name}@{ver} {script_name}\n> {script_cmd}\n",
-        pkg_name = pkg.name.as_deref().unwrap_or("app"),
-        ver = pkg.version.as_deref().unwrap_or("0.0.0"),
-    )))
+    pm.exit(pid, result.exit_code)?;
+
+    let mut stdout = header.into_bytes();
+    stdout.extend_from_slice(&result.stdout);
+
+    Ok(ExecOutput { stdout, stderr: result.stderr, exit_code: result.exit_code })
+}
+
+/// Parsea y ejecuta el string de un script npm (e.g. "bun run /index.js", "node server.js")
+fn run_script_command(script: &str, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+    let script_cmd = Command::parse(script)
+        .map_err(|_| RunboxError::Runtime(format!("invalid script: {script}")))?;
+
+    match script_cmd.program.as_str() {
+        "bun" => super::bun::BunRuntime.exec(&script_cmd, vfs, pm),
+        "node" | "nodejs" => {
+            // Tratar node igual que bun para ejecución JS en sandbox
+            super::bun::BunRuntime.exec(
+                &Command { program: "bun".into(), args: script_cmd.args, env: script_cmd.env },
+                vfs, pm,
+            )
+        }
+        "ts-node" | "tsx" => {
+            let mut args = vec!["run".to_string()];
+            args.extend(script_cmd.args);
+            super::bun::BunRuntime.exec(
+                &Command { program: "bun".into(), args, env: script_cmd.env },
+                vfs, pm,
+            )
+        }
+        _ => Err(RunboxError::Runtime(format!(
+            "script runtime '{}' not supported in sandbox", script_cmd.program
+        ))),
+    }
 }
 
 fn pm_exec(cmd: &Command, _vfs: &mut Vfs, pm: &mut ProcessManager, pm_name: &str) -> Result<ExecOutput> {
