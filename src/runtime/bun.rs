@@ -190,12 +190,17 @@ fn collect_tests(vfs: &Vfs, path: &str, out: &mut Vec<String>) {
     }
 }
 
-/// Escanea /node_modules del VFS y serializa todos los archivos JS/JSON
-/// en globalThis.__vfs_modules para que require() los cargue en eval().
+/// Escanea /node_modules Y los archivos del proyecto del VFS y los serializa
+/// en globalThis.__vfs_modules para que require() local e npm funcionen en eval().
 #[cfg(target_arch = "wasm32")]
 fn preload_vfs_modules(vfs: &crate::vfs::Vfs) {
     let mut modules: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    // 1. node_modules — paquetes npm
     collect_module_files(vfs, "/node_modules", &mut modules);
+
+    // 2. Archivos del proyecto — permite require('./components/Foo')
+    collect_project_files(vfs, "/", &mut modules);
 
     if modules.is_empty() { return; }
 
@@ -208,14 +213,14 @@ fn preload_vfs_modules(vfs: &crate::vfs::Vfs) {
     let _ = js_sys::eval(&script);
 }
 
+/// Carga paquetes npm desde /node_modules al mapa de módulos.
 #[cfg(target_arch = "wasm32")]
 fn collect_module_files(vfs: &crate::vfs::Vfs, path: &str, out: &mut std::collections::HashMap<String, String>) {
     let entries = match vfs.list(path) { Ok(e) => e, Err(_) => return };
     for entry in entries {
         let full = format!("{path}/{entry}");
-        // Saltar archivos .wasm, .map, binarios, y carpetas con muchos archivos irrelevantes
         if entry.ends_with(".wasm") || entry.ends_with(".map") || entry.ends_with(".md")
-            || entry.ends_with(".ts") && !entry.ends_with(".d.ts") { continue; }
+            || (entry.ends_with(".ts") && !entry.ends_with(".d.ts")) { continue; }
 
         if let Ok(bytes) = vfs.read(&full) {
             if let Ok(content) = std::str::from_utf8(bytes) {
@@ -224,6 +229,40 @@ fn collect_module_files(vfs: &crate::vfs::Vfs, path: &str, out: &mut std::collec
             }
         } else {
             collect_module_files(vfs, &full, out);
+        }
+    }
+}
+
+/// Carga archivos locales del proyecto (fuera de node_modules) para que
+/// require('./components/Foo') funcione en el eval del sandbox.
+/// Guarda cada archivo con dos claves: `path/file.js` y `./path/file.js`.
+#[cfg(target_arch = "wasm32")]
+fn collect_project_files(vfs: &crate::vfs::Vfs, path: &str, out: &mut std::collections::HashMap<String, String>) {
+    let entries = match vfs.list(path) { Ok(e) => e, Err(_) => return };
+    for entry in &entries {
+        // Saltar node_modules y archivos ocultos
+        if entry == "node_modules" || entry.starts_with('.') { continue; }
+
+        let full = if path == "/" {
+            format!("/{entry}")
+        } else {
+            format!("{path}/{entry}")
+        };
+
+        if let Ok(bytes) = vfs.read(&full) {
+            let ext = entry.rsplit('.').next().unwrap_or("");
+            if matches!(ext, "js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx" | "json") {
+                if let Ok(content) = std::str::from_utf8(bytes) {
+                    // Clave sin slash inicial: "components/Foo.js"
+                    let bare = full.trim_start_matches('/').to_string();
+                    out.insert(bare.clone(), content.to_string());
+                    // Clave con ./ para require desde el directorio raíz: "./components/Foo.js"
+                    out.insert(format!("./{bare}"), content.to_string());
+                }
+            }
+        } else {
+            // Es un directorio — recursión
+            collect_project_files(vfs, &full, out);
         }
     }
 }
