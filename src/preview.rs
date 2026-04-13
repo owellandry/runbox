@@ -675,6 +675,27 @@ pub fn handle_preview_request(
 
 // ── HTML injection ──────────────────────────────────────────────────────────
 
+/// Case-insensitive search for an ASCII needle in a string.
+/// Returns the byte position in the *original* string, avoiding the
+/// byte-length mismatch that `str::to_lowercase().find()` causes with
+/// multi-byte Unicode characters (e.g. İ → i̇ changes byte length).
+fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    let needle_bytes = needle.as_bytes();
+    let haystack_bytes = haystack.as_bytes();
+    if needle_bytes.is_empty() || haystack_bytes.len() < needle_bytes.len() {
+        return None;
+    }
+    'outer: for i in 0..=(haystack_bytes.len() - needle_bytes.len()) {
+        for j in 0..needle_bytes.len() {
+            if !haystack_bytes[i + j].eq_ignore_ascii_case(&needle_bytes[j]) {
+                continue 'outer;
+            }
+        }
+        return Some(i);
+    }
+    None
+}
+
 /// Inject live-reload script and meta tags into an HTML document.
 fn inject_into_html(html: &str, session: &PreviewSession) -> String {
     let mut result = html.to_string();
@@ -687,16 +708,18 @@ fn inject_into_html(html: &str, session: &PreviewSession) -> String {
     let live_reload_script = LIVE_RELOAD_SCRIPT;
 
     // Inject meta tags after <head> (or at the beginning if no <head>)
-    if let Some(pos) = result.to_lowercase().find("<head>") {
+    // Uses ASCII case-insensitive search on the original string to avoid
+    // byte-position misalignment from to_lowercase() on multi-byte chars.
+    if let Some(pos) = find_ascii_case_insensitive(&result, "<head>") {
         let insert_pos = pos + 6; // after "<head>"
         result.insert_str(insert_pos, &format!("\n{meta_tags}"));
-    } else if let Some(pos) = result.to_lowercase().find("<html>") {
+    } else if let Some(pos) = find_ascii_case_insensitive(&result, "<html>") {
         let insert_pos = pos + 6;
         result.insert_str(insert_pos, &format!("\n<head>\n{meta_tags}</head>\n"));
     }
 
     // Inject live-reload script before </body> (or at the end)
-    if let Some(pos) = result.to_lowercase().find("</body>") {
+    if let Some(pos) = find_ascii_case_insensitive(&result, "</body>") {
         result.insert_str(pos, live_reload_script);
     } else {
         result.push_str(live_reload_script);
