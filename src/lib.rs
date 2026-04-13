@@ -5,6 +5,7 @@ pub mod hotreload;
 pub mod inspector;
 pub mod mcp;
 pub mod network;
+pub mod preview;
 pub mod process;
 pub mod runtime;
 pub mod sandbox;

@@ -34,6 +34,10 @@ pub fn all_tools() -> Vec<ToolDef> {
         reload_sandbox(),
         install_packages(),
         get_file_tree(),
+        preview_start(),
+        preview_stop(),
+        preview_configure(),
+        preview_share(),
     ]
 }
 
@@ -255,6 +259,121 @@ fn get_file_tree() -> ToolDef {
                     "description": "Maximum recursion depth. Defaults to 5"
                 }
             },
+            "required": []
+        }),
+    }
+}
+
+fn preview_start() -> ToolDef {
+    ToolDef {
+        name: "preview_start",
+        description: "Start a preview session for the current project. Optionally configure domain, port, metadata, CORS, and live-reload settings.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Custom domain for the preview (e.g., 'preview.myapp.com'). Users must point DNS to the RunBox host."
+                },
+                "port": {
+                    "type": "number",
+                    "description": "Port number for localhost preview. Default: 3000"
+                },
+                "base_path": {
+                    "type": "string",
+                    "description": "Base URL path prefix (e.g., '/app'). Default: '/'"
+                },
+                "https": {
+                    "type": "boolean",
+                    "description": "Use HTTPS in generated URLs. Default: false"
+                },
+                "spa": {
+                    "type": "boolean",
+                    "description": "Enable SPA mode (serve index.html for non-file routes). Default: true"
+                },
+                "live_reload": {
+                    "type": "boolean",
+                    "description": "Inject live-reload script into HTML. Default: true"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Preview title for browser tab and social sharing"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Preview description for social sharing metadata"
+                }
+            },
+            "required": []
+        }),
+    }
+}
+
+fn preview_stop() -> ToolDef {
+    ToolDef {
+        name: "preview_stop",
+        description: "Stop the current preview session.",
+        parameters: json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        }),
+    }
+}
+
+fn preview_configure() -> ToolDef {
+    ToolDef {
+        name: "preview_configure",
+        description: "Update preview configuration: set custom domain, update metadata, configure CORS, or change other settings.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Custom domain to set (e.g., 'preview.myapp.com')"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Update preview title"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Update preview description"
+                },
+                "image": {
+                    "type": "string",
+                    "description": "URL to preview image for social sharing"
+                },
+                "favicon": {
+                    "type": "string",
+                    "description": "URL to favicon"
+                },
+                "cors_origins": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Allowed CORS origins. Use ['*'] for any origin"
+                },
+                "spa": {
+                    "type": "boolean",
+                    "description": "Enable/disable SPA mode"
+                },
+                "live_reload": {
+                    "type": "boolean",
+                    "description": "Enable/disable live-reload injection"
+                }
+            },
+            "required": []
+        }),
+    }
+}
+
+fn preview_share() -> ToolDef {
+    ToolDef {
+        name: "preview_share",
+        description: "Generate a shareable URL for the current preview. If a custom domain is set, the URL uses that domain so others can access the project.",
+        parameters: json!({
+            "type": "object",
+            "properties": {},
             "required": []
         }),
     }

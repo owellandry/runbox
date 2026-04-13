@@ -19,6 +19,7 @@ pub struct McpServer {
     pub vfs: Vfs,
     pub pm: ProcessManager,
     pub console: Console,
+    pub preview: crate::preview::PreviewManager,
     initialized: bool,
 }
 
@@ -28,6 +29,7 @@ impl McpServer {
             vfs,
             pm,
             console,
+            preview: crate::preview::PreviewManager::new(),
             initialized: false,
         }
     }
@@ -170,6 +172,40 @@ impl McpServer {
                 "Lista los procesos activos en el sandbox.",
                 json!({ "type":"object","properties":{},"required":[] }),
             ),
+            mcp_tool(
+                "preview_start",
+                "Inicia una sesi\u{00f3}n de preview del proyecto con configuraci\u{00f3}n opcional de dominio, puerto, metadata y CORS.",
+                json!({ "type":"object","properties":{
+                    "domain":{"type":"string","description":"Dominio personalizado (ej: preview.myapp.com)"},
+                    "port":{"type":"number","description":"Puerto para localhost. Default: 3000"},
+                    "title":{"type":"string","description":"T\u{00ed}tulo del preview"},
+                    "description":{"type":"string","description":"Descripci\u{00f3}n para social sharing"},
+                    "spa":{"type":"boolean","description":"Modo SPA (index.html fallback). Default: true"},
+                    "live_reload":{"type":"boolean","description":"Inyectar script de live-reload. Default: true"}
+                },"required":[] }),
+            ),
+            mcp_tool(
+                "preview_stop",
+                "Detiene la sesi\u{00f3}n de preview actual.",
+                json!({ "type":"object","properties":{},"required":[] }),
+            ),
+            mcp_tool(
+                "preview_set_domain",
+                "Configura un dominio personalizado para compartir el preview con otros usuarios.",
+                json!({ "type":"object","properties":{
+                    "domain":{"type":"string","description":"Dominio personalizado (ej: preview.myapp.com)"}
+                },"required":["domain"] }),
+            ),
+            mcp_tool(
+                "preview_share",
+                "Genera una URL compartible del preview actual. Si hay dominio configurado, usa ese dominio.",
+                json!({ "type":"object","properties":{},"required":[] }),
+            ),
+            mcp_tool(
+                "preview_status",
+                "Obtiene el estado actual del preview (sesi\u{00f3}n, URL, configuraci\u{00f3}n).",
+                json!({ "type":"object","properties":{},"required":[] }),
+            ),
         ];
         json!({ "tools": tools })
     }
@@ -190,6 +226,11 @@ impl McpServer {
             "search" => self.tool_search(args),
             "console_logs" => self.tool_console_logs(args),
             "process_list" => self.tool_process_list(),
+            "preview_start" => self.tool_preview_start(args),
+            "preview_stop" => self.tool_preview_stop(),
+            "preview_set_domain" => self.tool_preview_set_domain(args),
+            "preview_share" => self.tool_preview_share(),
+            "preview_status" => self.tool_preview_status(),
             other => ToolCallResult::err(format!("unknown tool: {other}")),
         };
 
@@ -362,6 +403,75 @@ impl McpServer {
             .collect::<Vec<_>>()
             .join("\n");
         ToolCallResult::ok(text)
+    }
+
+    // ── Preview tools ─────────────────────────────────────────────────────────
+
+    fn tool_preview_start(&mut self, args: &Value) -> ToolCallResult {
+        use crate::preview::PreviewConfig;
+        let mut config = PreviewConfig::default();
+
+        if let Some(domain) = args["domain"].as_str() {
+            config.domain = Some(domain.to_string());
+        }
+        if let Some(port) = args["port"].as_u64() {
+            config.port = port as u16;
+        }
+        if let Some(title) = args["title"].as_str() {
+            config.metadata.title = title.to_string();
+        }
+        if let Some(desc) = args["description"].as_str() {
+            config.metadata.description = desc.to_string();
+        }
+        if let Some(spa) = args["spa"].as_bool() {
+            config.spa = spa;
+        }
+        if let Some(lr) = args["live_reload"].as_bool() {
+            config.live_reload = lr;
+        }
+
+        let session = self.preview.start(config, 0);
+        ToolCallResult::ok(format!(
+            "Preview started\n  session_id: {}\n  url: {}\n  status: running",
+            session.id,
+            session.base_url()
+        ))
+    }
+
+    fn tool_preview_stop(&mut self) -> ToolCallResult {
+        match self.preview.stop() {
+            Ok(()) => ToolCallResult::ok("Preview stopped"),
+            Err(e) => ToolCallResult::err(e.to_string()),
+        }
+    }
+
+    fn tool_preview_set_domain(&mut self, args: &Value) -> ToolCallResult {
+        let domain = match args["domain"].as_str() {
+            Some(d) => d,
+            None => return ToolCallResult::err("missing 'domain'"),
+        };
+        match self.preview.set_domain(domain) {
+            Ok(()) => {
+                let url = self
+                    .preview
+                    .current()
+                    .map(|s| s.base_url())
+                    .unwrap_or_default();
+                ToolCallResult::ok(format!("Domain set: {domain}\nPreview URL: {url}"))
+            }
+            Err(e) => ToolCallResult::err(e.to_string()),
+        }
+    }
+
+    fn tool_preview_share(&mut self) -> ToolCallResult {
+        match self.preview.share() {
+            Ok(url) => ToolCallResult::ok(format!("Share URL: {url}")),
+            Err(e) => ToolCallResult::err(e.to_string()),
+        }
+    }
+
+    fn tool_preview_status(&self) -> ToolCallResult {
+        ToolCallResult::ok(self.preview.status_json())
     }
 
     // ── Resources ─────────────────────────────────────────────────────────────

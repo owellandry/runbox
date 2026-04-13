@@ -1,6 +1,7 @@
 use crate::ai::tools::{ToolCall, ToolResult};
 use crate::console::Console;
 use crate::error::RunboxError;
+use crate::preview::PreviewManager;
 use crate::process::ProcessManager;
 use crate::runtime::Runtime;
 use crate::runtime::bun::BunRuntime;
@@ -20,6 +21,17 @@ pub fn dispatch(
     pm: &mut ProcessManager,
     console: &mut Console,
 ) -> ToolResult {
+    dispatch_with_preview(call, vfs, pm, console, None)
+}
+
+/// Ejecuta una tool call con acceso opcional al PreviewManager.
+pub fn dispatch_with_preview(
+    call: &ToolCall,
+    vfs: &mut Vfs,
+    pm: &mut ProcessManager,
+    console: &mut Console,
+    preview: Option<&mut PreviewManager>,
+) -> ToolResult {
     let content = match call.name.as_str() {
         "read_file" => skill_read_file(call, vfs),
         "write_file" => skill_write_file(call, vfs),
@@ -30,6 +42,10 @@ pub fn dispatch(
         "reload_sandbox" => skill_reload(call),
         "install_packages" => skill_install_packages(call, vfs, pm, console),
         "get_file_tree" => skill_file_tree(call, vfs),
+        "preview_start" => skill_preview_start(call, preview),
+        "preview_stop" => skill_preview_stop(preview),
+        "preview_configure" => skill_preview_configure(call, preview),
+        "preview_share" => skill_preview_share(preview),
         other => Err(RunboxError::Runtime(format!("unknown skill: {other}"))),
     };
 
@@ -293,4 +309,130 @@ fn detect_package_manager(vfs: &Vfs) -> &'static str {
         return "yarn";
     }
     "npm"
+}
+
+// ── Preview skills ───────────────────────────────────────────────────────────
+
+fn skill_preview_start(
+    call: &ToolCall,
+    preview: Option<&mut PreviewManager>,
+) -> crate::error::Result<Value> {
+    let preview = preview.ok_or_else(|| {
+        RunboxError::Runtime("preview not available in this context".into())
+    })?;
+
+    let mut config = crate::preview::PreviewConfig::default();
+
+    // Apply optional overrides from arguments
+    if let Some(domain) = call.arguments["domain"].as_str() {
+        config.domain = Some(domain.to_string());
+    }
+    if let Some(port) = call.arguments["port"].as_u64() {
+        config.port = port as u16;
+    }
+    if let Some(base) = call.arguments["base_path"].as_str() {
+        config.base_path = base.to_string();
+    }
+    if let Some(https) = call.arguments["https"].as_bool() {
+        config.https = https;
+    }
+    if let Some(spa) = call.arguments["spa"].as_bool() {
+        config.spa = spa;
+    }
+    if let Some(lr) = call.arguments["live_reload"].as_bool() {
+        config.live_reload = lr;
+    }
+    if let Some(title) = call.arguments["title"].as_str() {
+        config.metadata.title = title.to_string();
+    }
+    if let Some(desc) = call.arguments["description"].as_str() {
+        config.metadata.description = desc.to_string();
+    }
+
+    // Use current timestamp (0 as fallback — the WASM layer provides real time)
+    let session = preview.start(config, 0);
+    Ok(json!({
+        "session_id": session.id,
+        "status": "running",
+        "url": session.base_url(),
+        "share_url": session.share_url(),
+    }))
+}
+
+fn skill_preview_stop(
+    preview: Option<&mut PreviewManager>,
+) -> crate::error::Result<Value> {
+    let preview = preview.ok_or_else(|| {
+        RunboxError::Runtime("preview not available in this context".into())
+    })?;
+
+    preview.stop()?;
+    Ok(json!({ "stopped": true }))
+}
+
+fn skill_preview_configure(
+    call: &ToolCall,
+    preview: Option<&mut PreviewManager>,
+) -> crate::error::Result<Value> {
+    let preview = preview.ok_or_else(|| {
+        RunboxError::Runtime("preview not available in this context".into())
+    })?;
+
+    let session = preview.current_mut().ok_or_else(|| {
+        RunboxError::Runtime("no active preview session".into())
+    })?;
+
+    // Apply configuration updates
+    if let Some(domain) = call.arguments["domain"].as_str() {
+        session.config.domain = Some(domain.to_string());
+    }
+    if let Some(title) = call.arguments["title"].as_str() {
+        session.config.metadata.title = title.to_string();
+    }
+    if let Some(desc) = call.arguments["description"].as_str() {
+        session.config.metadata.description = desc.to_string();
+    }
+    if let Some(image) = call.arguments["image"].as_str() {
+        session.config.metadata.image = image.to_string();
+    }
+    if let Some(favicon) = call.arguments["favicon"].as_str() {
+        session.config.metadata.favicon = favicon.to_string();
+    }
+    if let Some(origins) = call.arguments["cors_origins"].as_array() {
+        session.config.cors.allowed_origins = origins
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect();
+    }
+    if let Some(spa) = call.arguments["spa"].as_bool() {
+        session.config.spa = spa;
+    }
+    if let Some(lr) = call.arguments["live_reload"].as_bool() {
+        session.config.live_reload = lr;
+    }
+
+    Ok(json!({
+        "configured": true,
+        "url": session.base_url(),
+        "domain": session.config.domain,
+    }))
+}
+
+fn skill_preview_share(
+    preview: Option<&mut PreviewManager>,
+) -> crate::error::Result<Value> {
+    let preview = preview.ok_or_else(|| {
+        RunboxError::Runtime("preview not available in this context".into())
+    })?;
+
+    let share_url = preview.share()?;
+    let session = preview.current().ok_or_else(|| {
+        RunboxError::Runtime("no active preview session".into())
+    })?;
+
+    Ok(json!({
+        "share_url": share_url,
+        "session_id": session.id,
+        "domain": session.config.domain,
+    }))
 }
