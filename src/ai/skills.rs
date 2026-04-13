@@ -362,7 +362,7 @@ fn skill_explain_project(_call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Va
     }))
 }
 
-fn skill_refactor_code(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Result<Value> {
+fn skill_refactor_code(call: &ToolCall, _vfs: &mut Vfs) -> crate::error::Result<Value> {
     let path = str_arg(&call.arguments, "path")?;
     let req = str_arg(&call.arguments, "instructions")?;
     Ok(json!({ "status": "acknowledged", "path": path, "request": req, "hint": "Genera los patches con patch_file o write_file siguiendo el código." }))

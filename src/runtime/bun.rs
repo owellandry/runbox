@@ -256,11 +256,26 @@ fn preload_vfs_modules(vfs: &crate::vfs::Vfs) {
     // 2. Un eval por paquete npm — aísla fallos de paquetes grandes
     if let Ok(pkg_names) = vfs.list("/node_modules") {
         for pkg_name in pkg_names {
-            let pkg_root = format!("/node_modules/{pkg_name}");
-            let mut pkg_files: std::collections::HashMap<String, String> =
-                std::collections::HashMap::new();
-            collect_npm_package(vfs, &pkg_root, &pkg_name, &mut pkg_files);
-            eval_into_vfs_modules(&pkg_files);
+            if pkg_name.starts_with('@') {
+                // Scoped package: @scope/package — scan inner directory
+                let scope_root = format!("/node_modules/{pkg_name}");
+                if let Ok(scoped_pkgs) = vfs.list(&scope_root) {
+                    for scoped_name in scoped_pkgs {
+                        let full_name = format!("{pkg_name}/{scoped_name}");
+                        let pkg_root = format!("/node_modules/{full_name}");
+                        let mut pkg_files: std::collections::HashMap<String, String> =
+                            std::collections::HashMap::new();
+                        collect_npm_package(vfs, &pkg_root, &full_name, &mut pkg_files);
+                        eval_into_vfs_modules(&pkg_files);
+                    }
+                }
+            } else {
+                let pkg_root = format!("/node_modules/{pkg_name}");
+                let mut pkg_files: std::collections::HashMap<String, String> =
+                    std::collections::HashMap::new();
+                collect_npm_package(vfs, &pkg_root, &pkg_name, &mut pkg_files);
+                eval_into_vfs_modules(&pkg_files);
+            }
         }
     }
 }
@@ -353,53 +368,97 @@ fn collect_npm_package(
     pkg_name: &str,
     out: &mut std::collections::HashMap<String, String>,
 ) {
-    // Siempre cargar package.json
-    let pkg_json_path = format!("{pkg_root}/package.json");
-    if let Ok(bytes) = vfs.read(&pkg_json_path) {
-        if let Ok(content) = std::str::from_utf8(bytes) {
-            let key = format!("{pkg_name}/package.json");
-            out.insert(key, content.to_string());
-        }
+    // Recursively load ALL relevant files from the package directory tree.
+    // This ensures that internal require() calls within packages (like
+    // react requiring './cjs/react.production.min.js') can find their targets.
+    collect_npm_package_recursive(vfs, pkg_root, pkg_root, pkg_name, out, 0);
+}
+
+/// Recursively walks the package directory tree and loads all .js/.cjs/.mjs/.json
+/// files into the VFS module map. Caps recursion depth to avoid infinite loops
+/// and limits total files per package to prevent memory blowup for huge packages.
+#[cfg(target_arch = "wasm32")]
+fn collect_npm_package_recursive(
+    vfs: &crate::vfs::Vfs,
+    pkg_root: &str,
+    current_dir: &str,
+    pkg_name: &str,
+    out: &mut std::collections::HashMap<String, String>,
+    depth: usize,
+) {
+    // Safety limits: max 8 levels deep, max 500 files per package
+    const MAX_DEPTH: usize = 8;
+    const MAX_FILES: usize = 500;
+
+    if depth > MAX_DEPTH || out.len() > MAX_FILES {
+        return;
     }
 
-    let entry_candidates = vfs
-        .read(&pkg_json_path)
-        .map(package_entry_candidates)
-        .unwrap_or_else(|_| {
-            vec![
-                "index.js".to_string(),
-                "index.cjs".to_string(),
-                "index.mjs".to_string(),
-            ]
-        });
+    let entries = match vfs.list(current_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
 
-    for entry_file in entry_candidates {
-        // Cargar entry candidate.
-        let entry_path = format!("{pkg_root}/{entry_file}");
-        load_file_to_map(vfs, &entry_path, pkg_name, &entry_file, out);
+    for entry in entries {
+        // Skip irrelevant files and directories
+        if entry.starts_with('.')
+            || entry == "node_modules"
+            || entry == "__tests__"
+            || entry == "test"
+            || entry == "tests"
+            || entry == "docs"
+            || entry == "doc"
+            || entry == "examples"
+            || entry == "example"
+            || entry == ".github"
+        {
+            continue;
+        }
 
-        // Cargar archivos hermanos del directorio del entry (1 nivel).
-        let entry_dir = if let Some(pos) = entry_file.rfind('/') {
-            format!("{pkg_root}/{}", &entry_file[..pos])
-        } else {
-            pkg_root.to_string()
-        };
+        let full_path = format!("{current_dir}/{entry}");
 
-        if let Ok(siblings) = vfs.list(&entry_dir) {
-            for sib in siblings {
-                if sib.ends_with(".wasm") || sib.ends_with(".map") || sib.ends_with(".md") {
-                    continue;
-                }
-                let ext = sib.rsplit('.').next().unwrap_or("");
-                if !matches!(ext, "js" | "mjs" | "cjs" | "json") {
-                    continue;
-                }
-                let sib_full = format!("{entry_dir}/{sib}");
-                let sib_rel = sib_full
-                    .strip_prefix(&format!("{pkg_root}/"))
-                    .unwrap_or(&sib);
-                load_file_to_map(vfs, &sib_full, pkg_name, sib_rel, out);
+        if let Ok(bytes) = vfs.read(&full_path) {
+            // It's a file — check extension
+            let ext = entry.rsplit('.').next().unwrap_or("");
+
+            // Skip non-useful files
+            if matches!(ext, "wasm" | "map" | "md" | "txt" | "ts" | "tsx"
+                | "d" | "flow" | "lock" | "yml" | "yaml" | "toml" | "log"
+                | "png" | "jpg" | "gif" | "svg" | "ico" | "woff" | "woff2"
+                | "ttf" | "eot" | "css")
+            {
+                continue;
             }
+
+            // Skip .d.ts files
+            if entry.ends_with(".d.ts") || entry.ends_with(".d.mts") || entry.ends_with(".d.cts") {
+                continue;
+            }
+
+            if !matches!(ext, "js" | "mjs" | "cjs" | "json") {
+                continue;
+            }
+
+            // Skip files larger than 512KB — they're unlikely to be needed and
+            // can cause eval() memory pressure
+            if bytes.len() > 512_000 {
+                continue;
+            }
+
+            if let Ok(content) = std::str::from_utf8(bytes) {
+                let rel = full_path
+                    .strip_prefix(&format!("{pkg_root}/"))
+                    .unwrap_or(&entry);
+                let key = format!("{pkg_name}/{rel}");
+                out.insert(key, content.to_string());
+            }
+
+            if out.len() > MAX_FILES {
+                return;
+            }
+        } else {
+            // It's a directory — recurse
+            collect_npm_package_recursive(vfs, pkg_root, &full_path, pkg_name, out, depth + 1);
         }
     }
 }

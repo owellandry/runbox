@@ -696,8 +696,12 @@ fn eval_js(source: &str) -> JsOutput {
             return pick(exportTarget) || pick(pkg.main) || pick(pkg.module) || 'index.js';
         }
 
+
         function __find_module_file(name) {
             const vfs = globalThis.__vfs_modules;
+            // Direct key match first (handles already-resolved paths like 'react/cjs/react.production.min.js')
+            if (vfs[name] !== undefined) return { path: name, code: vfs[name] };
+
             // Leer main de package.json — preferir CJS (main) sobre ESM (module)
             const pkgPath = name + '/package.json';
             if (vfs[pkgPath]) {
@@ -725,14 +729,97 @@ fn eval_js(source: &str) -> JsOutput {
                 name + '/index.js',
                 name + '/index.cjs',
                 name + '/index.json',
-                name,
                 name + '.js',
                 name + '.cjs',
                 name + '.json',
                 name + '/index.mjs',
+                name + '.mjs',
             ];
             for (const c of candidates) {
                 if (vfs[c] !== undefined) return { path: c, code: vfs[c] };
+            }
+
+            // Handle subpath imports like 'react-dom/client' — split into package + subpath
+            const slashIdx = name.indexOf('/');
+            if (slashIdx > 0 && !name.startsWith('@')) {
+                const pkgName = name.substring(0, slashIdx);
+                const subPath = name.substring(slashIdx + 1);
+                // Check package.json exports for subpath
+                const rootPkgPath = pkgName + '/package.json';
+                if (vfs[rootPkgPath]) {
+                    try {
+                        const rootPkg = JSON.parse(vfs[rootPkgPath]);
+                        if (rootPkg.exports && typeof rootPkg.exports === 'object') {
+                            const subKey = './' + subPath;
+                            if (rootPkg.exports[subKey]) {
+                                const subTarget = pick_export_path_inner(rootPkg.exports[subKey]);
+                                if (subTarget) {
+                                    const full = pkgName + '/' + subTarget.replace(/^\.\//, '');
+                                    if (vfs[full] !== undefined) return { path: full, code: vfs[full] };
+                                }
+                            }
+                        }
+                    } catch(e) {}
+                }
+            }
+            // Handle scoped package subpath imports like '@scope/pkg/subpath'
+            if (name.startsWith('@')) {
+                const parts = name.split('/');
+                if (parts.length >= 3) {
+                    const pkgName = parts[0] + '/' + parts[1];
+                    const subPath = parts.slice(2).join('/');
+                    const rootPkgPath = pkgName + '/package.json';
+                    if (vfs[rootPkgPath]) {
+                        try {
+                            const rootPkg = JSON.parse(vfs[rootPkgPath]);
+                            if (rootPkg.exports && typeof rootPkg.exports === 'object') {
+                                const subKey = './' + subPath;
+                                if (rootPkg.exports[subKey]) {
+                                    const subTarget = pick_export_path_inner(rootPkg.exports[subKey]);
+                                    if (subTarget) {
+                                        const full = pkgName + '/' + subTarget.replace(/^\.\//, '');
+                                        if (vfs[full] !== undefined) return { path: full, code: vfs[full] };
+                                    }
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                    // Direct subpath fallback
+                    const directCandidates = [
+                        pkgName + '/' + subPath,
+                        pkgName + '/' + subPath + '.js',
+                        pkgName + '/' + subPath + '.cjs',
+                        pkgName + '/' + subPath + '/index.js',
+                    ];
+                    for (const c of directCandidates) {
+                        if (vfs[c] !== undefined) return { path: c, code: vfs[c] };
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        // Helper for resolving export map values recursively
+        function pick_export_path_inner(v) {
+            if (!v) return null;
+            if (typeof v === 'string') return v;
+            if (Array.isArray(v)) {
+                for (const item of v) {
+                    const hit = pick_export_path_inner(item);
+                    if (hit) return hit;
+                }
+                return null;
+            }
+            if (typeof v === 'object') {
+                for (const key of ['require', 'node', 'default', 'import', 'browser']) {
+                    const hit = pick_export_path_inner(v[key]);
+                    if (hit) return hit;
+                }
+                for (const value of Object.values(v)) {
+                    const hit = pick_export_path_inner(value);
+                    if (hit) return hit;
+                }
             }
             return null;
         }
@@ -773,8 +860,11 @@ fn eval_js(source: &str) -> JsOutput {
             const found = __find_module_file(name);
             if (!found) throw new Error("Cannot find module '" + name + "'. Did you run npm install?");
             const { path: modPath, code: rawCode } = found;
+            // Also cache by the resolved path to avoid double-loading
+            if (modPath !== name && __module_cache[modPath] !== undefined) return __module_cache[modPath];
             const mod = { exports: {}, id: modPath };
             __module_cache[name] = mod.exports; // Pre-cache para evitar ciclos
+            __module_cache[modPath] = mod.exports; // Cache by resolved path too
             const dir = modPath.split('/').slice(0, -1).join('/');
             // Transformar ESM a CJS si el archivo usa import/export
             const needsTransform = /^\s*(import\s|export\s)/m.test(rawCode);
@@ -783,55 +873,108 @@ fn eval_js(source: &str) -> JsOutput {
                 (new Function('module', 'exports', 'require', '__dirname', '__filename', code))(
                     mod, mod.exports,
                     (dep) => {
-                        const resolved = dep.startsWith('.')
-                            ? __resolve_module_path(dir, dep)
-                            : dep;
-                        // Intentar VFS primero, caer en built-ins si no existe
-                        if (globalThis.__vfs_modules[resolved] !== undefined ||
-                            globalThis.__vfs_modules[resolved + '/index.js'] !== undefined ||
-                            globalThis.__vfs_modules[resolved + '.js'] !== undefined) {
-                            return __vfs_require(resolved);
+                        // Strip node: prefix for core modules
+                        const cleanDep = dep.startsWith('node:') ? dep.substring(5) : dep;
+
+                        if (cleanDep.startsWith('.')) {
+                            // Relative import — resolve against current directory
+                            const resolved = __resolve_module_path(dir, cleanDep);
+                            // Use __find_module_file for proper entry point resolution
+                            const f = __find_module_file(resolved);
+                            if (f) return __vfs_require(f.path);
+                            // Fallback: try as-is via main require
+                            return require(resolved);
                         }
-                        return require(resolved);
+                        // Absolute/bare import — delegate to main require which handles built-ins + VFS
+                        return require(cleanDep);
                     },
                     '/' + dir, '/' + modPath
                 );
                 __module_cache[name] = mod.exports;
+                __module_cache[modPath] = mod.exports;
             } catch(e) {
                 delete __module_cache[name];
+                delete __module_cache[modPath];
                 throw new Error("Error loading module '" + name + "': " + e.message);
             }
             return mod.exports;
         }
 
+        // ── Node.js built-in shims ──────────────────────────────────────────
+        const __events_polyfill = (function() {
+            function EventEmitter() { this._events = {}; }
+            EventEmitter.prototype.on = function(e, fn) { (this._events[e] = this._events[e] || []).push(fn); return this; };
+            EventEmitter.prototype.emit = function(e) { var a = [].slice.call(arguments, 1); (this._events[e] || []).forEach(function(fn) { fn.apply(null, a); }); return this; };
+            EventEmitter.prototype.once = function(e, fn) { var self = this; function f() { self.off(e, f); fn.apply(null, arguments); } this.on(e, f); return this; };
+            EventEmitter.prototype.off = EventEmitter.prototype.removeListener = function(e, fn) { this._events[e] = (this._events[e] || []).filter(function(f) { return f !== fn; }); return this; };
+            EventEmitter.prototype.removeAllListeners = function(e) { if (e) delete this._events[e]; else this._events = {}; return this; };
+            EventEmitter.prototype.listeners = function(e) { return this._events[e] || []; };
+            EventEmitter.prototype.listenerCount = function(e) { return (this._events[e] || []).length; };
+            EventEmitter.prototype.addListener = EventEmitter.prototype.on;
+            EventEmitter.EventEmitter = EventEmitter;
+            EventEmitter.default = EventEmitter;
+            return EventEmitter;
+        })();
+
+        const __stream_polyfill = { Readable: __events_polyfill, Writable: __events_polyfill, Transform: __events_polyfill, Duplex: __events_polyfill, PassThrough: __events_polyfill, Stream: __events_polyfill, pipeline: function() {}, finished: function() {} };
+        const __util_polyfill = { inherits: function(c, p) { c.prototype = Object.create(p.prototype); c.prototype.constructor = c; }, deprecate: function(fn) { return fn; }, promisify: function(fn) { return function() { var a = [].slice.call(arguments); return new Promise(function(r, j) { a.push(function(e, v) { e ? j(e) : r(v); }); fn.apply(null, a); }); }; }, types: { isDate: function(v) { return v instanceof Date; }, isRegExp: function(v) { return v instanceof RegExp; } }, inspect: function(v) { return JSON.stringify(v); }, format: function() { return [].slice.call(arguments).join(' '); } };
+        const __assert_polyfill = function(v, msg) { if (!v) throw new Error(msg || 'Assertion failed'); };
+        __assert_polyfill.ok = __assert_polyfill;
+        __assert_polyfill.strictEqual = function(a, b, msg) { if (a !== b) throw new Error(msg || a + ' !== ' + b); };
+        __assert_polyfill.deepStrictEqual = __assert_polyfill.strictEqual;
+        const __querystring_polyfill = { parse: function(s) { var o = {}; (s || '').split('&').forEach(function(p) { var kv = p.split('='); o[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ''); }); return o; }, stringify: function(o) { return Object.entries(o || {}).map(function(kv) { return encodeURIComponent(kv[0]) + '=' + encodeURIComponent(kv[1]); }).join('&'); } };
+
         const require = (mod) => {
-            if (mod === 'http') return __http;
-            if (mod === 'path') return __path;
-            if (mod === 'os') return { platform: () => 'linux', tmpdir: () => '/tmp', homedir: () => '/home' };
-            if (mod === 'fs') return {
+            // Strip node: prefix
+            const cleanMod = mod.startsWith('node:') ? mod.substring(5) : mod;
+
+            // Node.js built-in modules
+            if (cleanMod === 'http' || cleanMod === 'https') return __http;
+            if (cleanMod === 'path') return __path;
+            if (cleanMod === 'os') return { platform: () => 'linux', tmpdir: () => '/tmp', homedir: () => '/home', cpus: () => [{}], arch: () => 'wasm32', hostname: () => 'runbox', type: () => 'Linux', release: () => '5.0.0', EOL: '\n' };
+            if (cleanMod === 'fs' || cleanMod === 'fs/promises') return {
                 readFileSync: () => { throw new Error('fs.readFileSync: not available in WASM sandbox'); },
                 writeFileSync: () => { throw new Error('fs.writeFileSync: not available in WASM sandbox'); },
                 existsSync: () => false,
+                readdirSync: () => [],
+                statSync: () => ({ isFile: () => false, isDirectory: () => false }),
+                mkdirSync: () => {},
+                promises: { readFile: () => Promise.reject(new Error('fs not available')), writeFile: () => Promise.reject(new Error('fs not available')) },
             };
-            if (mod === 'url') return {
+            if (cleanMod === 'url') return {
                 fileURLToPath: (u) => u.replace('file://', ''),
                 pathToFileURL: (p) => 'file://' + p,
+                URL: globalThis.URL || function(u) { this.href = u; this.pathname = u; },
+                URLSearchParams: globalThis.URLSearchParams || function() {},
             };
+            if (cleanMod === 'events') return __events_polyfill;
+            if (cleanMod === 'stream') return __stream_polyfill;
+            if (cleanMod === 'util') return __util_polyfill;
+            if (cleanMod === 'assert') return __assert_polyfill;
+            if (cleanMod === 'querystring') return __querystring_polyfill;
+            if (cleanMod === 'buffer') return { Buffer: globalThis.Buffer || { from: (d) => new Uint8Array(typeof d === 'string' ? [...d].map(c => c.charCodeAt(0)) : d), alloc: (n) => new Uint8Array(n), isBuffer: () => false } };
+            if (cleanMod === 'crypto') return globalThis.crypto || { getRandomValues: (a) => { for (var i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256); return a; }, randomUUID: () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); }) };
+            if (cleanMod === 'child_process') return { exec: () => {}, execSync: () => '', spawn: () => ({ on: () => {}, stdout: { on: () => {} }, stderr: { on: () => {} } }) };
+            if (cleanMod === 'worker_threads') return { isMainThread: true, parentPort: null, Worker: function() {} };
+            if (cleanMod === 'perf_hooks') return { performance: globalThis.performance || { now: Date.now } };
+            if (cleanMod === 'string_decoder') return { StringDecoder: function() { this.write = function(b) { return typeof b === 'string' ? b : new TextDecoder().decode(b); }; this.end = function() { return ''; }; } };
+            if (cleanMod === 'zlib') return { createGzip: () => __stream_polyfill, createGunzip: () => __stream_polyfill, gzip: (b, cb) => cb && cb(null, b), gunzip: (b, cb) => cb && cb(null, b) };
+
             // React y amigos — expuestos por el host (DemoPage) en globalThis
-            if (mod === 'react') {
+            if (cleanMod === 'react') {
                 const R = globalThis.__runbox_react;
                 if (R) return R;
             }
-            if (mod === 'react-dom' || mod === 'react-dom/client') {
+            if (cleanMod === 'react-dom' || cleanMod === 'react-dom/client') {
                 const R = globalThis.__runbox_reactdom;
                 if (R) return R;
             }
-            if (mod === 'react-dom/server') {
+            if (cleanMod === 'react-dom/server') {
                 const R = globalThis.__runbox_reactdom_server;
                 if (R) return R;
             }
             // Cargar desde VFS node_modules (cualquier paquete instalado via npm install)
-            return __vfs_require(mod);
+            return __vfs_require(cleanMod);
         };
         globalThis.require = require;
         globalThis.process = __process;
