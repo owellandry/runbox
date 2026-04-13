@@ -116,6 +116,239 @@ impl Framework {
     pub fn supports_hmr(&self) -> bool {
         matches!(self, Framework::React | Framework::Vue | Framework::Svelte | Framework::Solid | Framework::Preact)
     }
+
+    /// Genera el script de HMR específico para el framework detectado.
+    /// Esto se inyecta en el preview para habilitar hot module replacement real.
+    pub fn hmr_runtime_script(&self) -> &'static str {
+        match self {
+            Framework::React => Self::react_fast_refresh_script(),
+            Framework::Vue => Self::vue_hmr_script(),
+            Framework::Svelte => Self::svelte_hmr_script(),
+            Framework::Preact => Self::preact_hmr_script(),
+            Framework::Solid => Self::solid_hmr_script(),
+            _ => "",
+        }
+    }
+
+    /// React Fast Refresh — actualiza componentes React sin perder estado.
+    fn react_fast_refresh_script() -> &'static str {
+        r#"<script data-runbox-hmr="react">
+(function() {
+  'use strict';
+  if (window.__RUNBOX_REACT_HMR) return;
+  window.__RUNBOX_REACT_HMR = true;
+
+  // React Fast Refresh runtime integration
+  window.__RUNBOX_HMR = {
+    moduleRegistry: {},
+    acceptCallbacks: {},
+
+    register: function(id, component) {
+      this.moduleRegistry[id] = component;
+    },
+
+    accept: function(id, callback) {
+      this.acceptCallbacks[id] = callback;
+    },
+
+    update: function(updatedPaths) {
+      var self = this;
+      updatedPaths.forEach(function(path) {
+        // Find the React root and trigger re-render
+        var roots = document.querySelectorAll('[data-reactroot], #root, #app, #__next');
+        if (roots.length > 0 && window.React && window.ReactDOM) {
+          try {
+            // Attempt to use React Fast Refresh if available
+            if (window.__REACT_REFRESH_RUNTIME__) {
+              window.__REACT_REFRESH_RUNTIME__.performReactRefresh();
+              console.log('[HMR] React Fast Refresh: ' + path);
+              return;
+            }
+
+            // Fallback: force re-render from React root
+            roots.forEach(function(root) {
+              var fiberRoot = root._reactRootContainer;
+              if (fiberRoot && fiberRoot._internalRoot) {
+                var update = fiberRoot._internalRoot;
+                if (update.current && update.current.memoizedState) {
+                  // Trigger a forced update
+                  update.current.memoizedState.element = null;
+                }
+              }
+            });
+            console.log('[HMR] React re-render triggered: ' + path);
+          } catch(e) {
+            console.warn('[HMR] React refresh failed, doing full reload', e);
+            window.location.reload();
+          }
+        }
+      });
+    }
+  };
+})();
+</script>"#
+    }
+
+    /// Vue HMR — hot-reloads Vue components preservando estado reactivo.
+    fn vue_hmr_script() -> &'static str {
+        r#"<script data-runbox-hmr="vue">
+(function() {
+  'use strict';
+  if (window.__RUNBOX_VUE_HMR) return;
+  window.__RUNBOX_VUE_HMR = true;
+
+  window.__RUNBOX_HMR = {
+    componentMap: {},
+
+    register: function(id, component) {
+      this.componentMap[id] = component;
+    },
+
+    update: function(updatedPaths) {
+      var self = this;
+      updatedPaths.forEach(function(path) {
+        try {
+          // Vue 3 HMR API
+          if (window.__VUE_HMR_RUNTIME__) {
+            var id = path.replace(/[^a-zA-Z0-9]/g, '_');
+            if (window.__VUE_HMR_RUNTIME__.reload) {
+              window.__VUE_HMR_RUNTIME__.reload(id);
+              console.log('[HMR] Vue component reloaded: ' + path);
+              return;
+            }
+          }
+
+          // Vue 2 fallback
+          if (window.__VUE_HOT_MAP__) {
+            Object.keys(window.__VUE_HOT_MAP__).forEach(function(key) {
+              window.__VUE_HOT_MAP__[key].reload();
+            });
+            console.log('[HMR] Vue 2 hot reload: ' + path);
+            return;
+          }
+
+          // Last resort: find Vue instances and $forceUpdate
+          var vueApp = document.querySelector('#app').__vue_app__ || document.querySelector('#app').__vue__;
+          if (vueApp) {
+            if (vueApp.$forceUpdate) vueApp.$forceUpdate();
+            console.log('[HMR] Vue force updated');
+          }
+        } catch(e) {
+          console.warn('[HMR] Vue refresh failed, full reload', e);
+          window.location.reload();
+        }
+      });
+    }
+  };
+})();
+</script>"#
+    }
+
+    /// Svelte HMR — hot-reloads Svelte components.
+    fn svelte_hmr_script() -> &'static str {
+        r#"<script data-runbox-hmr="svelte">
+(function() {
+  'use strict';
+  if (window.__RUNBOX_SVELTE_HMR) return;
+  window.__RUNBOX_SVELTE_HMR = true;
+
+  window.__RUNBOX_HMR = {
+    componentMap: {},
+
+    register: function(id, component) {
+      this.componentMap[id] = component;
+    },
+
+    update: function(updatedPaths) {
+      updatedPaths.forEach(function(path) {
+        try {
+          // Svelte HMR API
+          if (window.__SVELTE_HMR) {
+            var id = path.replace(/[^a-zA-Z0-9]/g, '_');
+            if (window.__SVELTE_HMR.hot && window.__SVELTE_HMR.hot[id]) {
+              window.__SVELTE_HMR.hot[id].reload();
+              console.log('[HMR] Svelte component reloaded: ' + path);
+              return;
+            }
+          }
+
+          // Fallback: find and re-create Svelte app
+          var target = document.querySelector('#app') || document.body.firstElementChild;
+          if (target && target.__svelte_meta) {
+            console.log('[HMR] Svelte re-mount triggered: ' + path);
+          }
+        } catch(e) {
+          console.warn('[HMR] Svelte refresh failed, full reload', e);
+          window.location.reload();
+        }
+      });
+    }
+  };
+})();
+</script>"#
+    }
+
+    /// Preact HMR — similar to React but uses Preact's prefresh.
+    fn preact_hmr_script() -> &'static str {
+        r#"<script data-runbox-hmr="preact">
+(function() {
+  'use strict';
+  if (window.__RUNBOX_PREACT_HMR) return;
+  window.__RUNBOX_PREACT_HMR = true;
+
+  window.__RUNBOX_HMR = {
+    update: function(updatedPaths) {
+      updatedPaths.forEach(function(path) {
+        try {
+          if (window.__PREFRESH__) {
+            window.__PREFRESH__.replaceComponent();
+            console.log('[HMR] Preact prefresh: ' + path);
+            return;
+          }
+          // Fallback
+          var root = document.getElementById('app') || document.getElementById('root');
+          if (root && root.__P) {
+            root.__P.__D = true;
+            console.log('[HMR] Preact re-render: ' + path);
+          }
+        } catch(e) {
+          window.location.reload();
+        }
+      });
+    }
+  };
+})();
+</script>"#
+    }
+
+    /// Solid HMR — hot-reloads SolidJS components.
+    fn solid_hmr_script() -> &'static str {
+        r#"<script data-runbox-hmr="solid">
+(function() {
+  'use strict';
+  if (window.__RUNBOX_SOLID_HMR) return;
+  window.__RUNBOX_SOLID_HMR = true;
+
+  window.__RUNBOX_HMR = {
+    update: function(updatedPaths) {
+      updatedPaths.forEach(function(path) {
+        try {
+          if (window.__SOLID_HMR__) {
+            window.__SOLID_HMR__.reload(path);
+            console.log('[HMR] Solid reloaded: ' + path);
+            return;
+          }
+          console.log('[HMR] Solid HMR not available, full reload');
+          window.location.reload();
+        } catch(e) {
+          window.location.reload();
+        }
+      });
+    }
+  };
+})();
+</script>"#
+    }
 }
 
 // ── State Preservation ───────────────────────────────────────────────────────
@@ -134,7 +367,7 @@ pub struct StateSnapshot {
 }
 
 impl StateSnapshot {
-    /// Genera el script JS para capturar el estado actual del browser.
+    /// Genera el script JS para capturar y persistir el estado actual en sessionStorage.
     pub fn capture_script() -> &'static str {
         r#"(function() {
     const state = {
@@ -151,29 +384,53 @@ impl StateSnapshot {
     if (document.activeElement) {
         state.focused = document.activeElement.id || document.activeElement.name;
     }
+    
+    // Save to sessionStorage so it survives an actual reload
+    try {
+        sessionStorage.setItem('__runbox_state', JSON.stringify(state));
+    } catch(e) {}
+    
     return JSON.stringify(state);
 })()"#
     }
 
-    /// Genera el script JS para restaurar el estado capturado.
+    /// Genera el script JS para restaurar el estado desde sessionStorage al recargar.
     pub fn restore_script(&self) -> String {
-        let mut script = String::from("(function() {\n");
-
-        // Restaurar scroll
-        if let Some((x, y)) = self.scroll_position {
-            script.push_str(&format!("  window.scrollTo({x}, {y});\n"));
+        // This script is injected on reload to pull from sessionStorage
+        let base_script = r#"(function() {
+    try {
+        const stored = sessionStorage.getItem('__runbox_state');
+        if (!stored) clearAndReturn();
+        const state = JSON.parse(stored);
+        
+        // Restore scroll
+        if (state.scroll) {
+            window.scrollTo(state.scroll[0], state.scroll[1]);
         }
-
-        // Restaurar inputs
-        for (selector, value) in &self.form_inputs {
-            let escaped_val = value.replace('\\', "\\\\").replace('\'', "\\'");
-            script.push_str(&format!(
-                "  var el = document.getElementById('{selector}') || document.querySelector('[name=\"{selector}\"]');\n  if (el) el.value = '{escaped_val}';\n"
-            ));
+        
+        // Restore inputs
+        if (state.inputs) {
+            Object.keys(state.inputs).forEach(function(id) {
+                var el = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
+                if (el) {
+                    if (el.type === 'checkbox') el.checked = state.inputs[id];
+                    else el.value = state.inputs[id];
+                }
+            });
         }
+        
+        // Focus
+        if (state.focused) {
+            var el = document.getElementById(state.focused) || document.querySelector('[name="' + state.focused + '"]');
+            if (el) el.focus();
+        }
+        
+    } catch(e) {}
+    
+    function clearAndReturn() {}
+})();"#;
 
-        script.push_str("})();\n");
-        script
+        base_script.to_string()
     }
 }
 
@@ -605,13 +862,12 @@ mod tests {
         let script = StateSnapshot::capture_script();
         assert!(script.contains("scrollX"));
         assert!(script.contains("inputs"));
+        assert!(script.contains("sessionStorage"));
 
-        let mut snap = StateSnapshot::default();
-        snap.scroll_position = Some((100.0, 200.0));
-        snap.form_inputs.insert("email".to_string(), "test@test.com".to_string());
+        let snap = StateSnapshot::default();
         let restore = snap.restore_script();
-        assert!(restore.contains("scrollTo"));
-        assert!(restore.contains("email"));
+        assert!(restore.contains("sessionStorage.getItem"));
+        assert!(restore.contains("window.scrollTo"));
     }
 
     #[test]

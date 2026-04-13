@@ -38,6 +38,13 @@ pub fn all_tools() -> Vec<ToolDef> {
         preview_stop(),
         preview_configure(),
         preview_share(),
+        debug_error(),
+        refactor_code(),
+        generate_tests(),
+        explain_project(),
+        patch_file(),
+        fetch_url(),
+        scaffold_project(),
     ]
 }
 
@@ -375,6 +382,134 @@ fn preview_share() -> ToolDef {
             "type": "object",
             "properties": {},
             "required": []
+        }),
+    }
+}
+
+// ── Phase 5.4 AI Tools Avanzados ─────────────────────────────────────────────
+
+fn debug_error() -> ToolDef {
+    ToolDef {
+        name: "debug_error",
+        description: "Analyze an error message or stack trace, search for context in the codebase, and propose a fix.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "error_message": {
+                    "type": "string",
+                    "description": "The exact error message or stack trace to debug"
+                },
+                "related_file": {
+                    "type": "string",
+                    "description": "Optional file path where the error occurred"
+                }
+            },
+            "required": ["error_message"]
+        }),
+    }
+}
+
+fn refactor_code() -> ToolDef {
+    ToolDef {
+        name: "refactor_code",
+        description: "Safely refactor a specified code block or file, providing a unified diff of the required changes.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to refactor"
+                },
+                "instructions": {
+                    "type": "string",
+                    "description": "Description of the refactoring to perform (e.g., 'extract to a custom React hook')"
+                }
+            },
+            "required": ["path", "instructions"]
+        }),
+    }
+}
+
+fn generate_tests() -> ToolDef {
+    ToolDef {
+        name: "generate_tests",
+        description: "Generate unit tests for a specific file, function, or component.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the source file to test"
+                },
+                "framework": {
+                    "type": "string",
+                    "enum": ["jest", "vitest", "mocha", "node:test", "deno"],
+                    "description": "The test framework to use"
+                }
+            },
+            "required": ["path"]
+        }),
+    }
+}
+
+fn explain_project() -> ToolDef {
+    ToolDef {
+        name: "explain_project",
+        description: "Provide a comprehensive architectural and dependency overview of the current project.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "depth": {
+                    "type": "number",
+                    "description": "Level of detail required. Defaults to 2."
+                }
+            },
+            "required": []
+        }),
+    }
+}
+
+fn patch_file() -> ToolDef {
+    ToolDef {
+        name: "patch_file",
+        description: "Precise file editing using target blocks. Best for small changes in large files to avoid emitting the whole file.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path to file" },
+                "target_content": { "type": "string", "description": "Exact text to find and replace" },
+                "replacement_content": { "type": "string", "description": "Text to insert in place of target_content" }
+            },
+            "required": ["path", "target_content", "replacement_content"]
+        }),
+    }
+}
+
+fn fetch_url() -> ToolDef {
+    ToolDef {
+        name: "fetch_url",
+        description: "Fetch contents from an HTTP URL (GET method) to read documentation or external scripts.",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "url": { "type": "string", "description": "URL to fetch" }
+            },
+            "required": ["url"]
+        }),
+    }
+}
+
+fn scaffold_project() -> ToolDef {
+    ToolDef {
+        name: "scaffold_project",
+        description: "Quickly bootstrap an empty directory with a predefined template (e.g. react, node-api, vue).",
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "template": { "type": "string", "enum": ["react", "vite-react-ts", "express", "hono"], "description": "Template ID" },
+                "path": { "type": "string", "description": "Target extraction path. Defaults to /." }
+            },
+            "required": ["template"]
         }),
     }
 }

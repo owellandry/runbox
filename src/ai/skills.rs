@@ -46,6 +46,13 @@ pub fn dispatch_with_preview(
         "preview_stop" => skill_preview_stop(preview),
         "preview_configure" => skill_preview_configure(call, preview),
         "preview_share" => skill_preview_share(preview),
+        "patch_file" => skill_patch_file(call, vfs),
+        "fetch_url" => skill_fetch_url(call),
+        "scaffold_project" => skill_scaffold_project(call, vfs),
+        "debug_error" => skill_debug_error(call, vfs),
+        "explain_project" => skill_explain_project(call, vfs),
+        "refactor_code" => skill_refactor_code(call, vfs),
+        "generate_tests" => skill_generate_tests(call, vfs),
         other => Err(RunboxError::Runtime(format!("unknown skill: {other}"))),
     };
 
@@ -288,6 +295,82 @@ fn build_tree(vfs: &Vfs, path: &str, depth: usize) -> Value {
         .collect();
 
     json!({ "path": path, "type": "dir", "children": children })
+}
+
+// ── Phase 5.4 Advanced Agent Skills ───────────────────────────────────────────
+
+fn skill_patch_file(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Result<Value> {
+    let path = str_arg(&call.arguments, "path")?;
+    let target = str_arg(&call.arguments, "target_content")?;
+    let replacement = str_arg(&call.arguments, "replacement_content")?;
+
+    let bytes = vfs.read(path)?;
+    let content = String::from_utf8_lossy(&bytes).to_string();
+
+    if !content.contains(target) {
+        return Err(RunboxError::Runtime("target_content not found in file".into()));
+    }
+
+    let patched = content.replace(target, replacement);
+    vfs.write(path, patched.into_bytes())?;
+
+    Ok(json!({ "path": path, "patched": true }))
+}
+
+fn skill_fetch_url(call: &ToolCall) -> crate::error::Result<Value> {
+    let url = str_arg(&call.arguments, "url")?;
+    // En WASM, `reqwest::blocking` no es soportado. Se delega al cliente o se devuelve metadata instruction.
+    Ok(json!({
+        "status": "pending_host_fetch",
+        "url": url,
+        "message": "En el entorno WASM la red directa es limitada a Promesas asíncronas. Por favor invoca esta tool usando la API delegada del dashboard."
+    }))
+}
+
+fn skill_scaffold_project(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Result<Value> {
+    let template = str_arg(&call.arguments, "template")?;
+    let base = call.arguments["path"].as_str().unwrap_or("/");
+
+    let pkg_json = match template {
+        "react" => r#"{"name":"react-app","dependencies":{"react":"latest","react-dom":"latest"}}"#,
+        "express" => r#"{"name":"api","dependencies":{"express":"latest"}}"#,
+        _ => r#"{"name":"demo","version":"1.0.0"}"#,
+    };
+
+    let p = if base == "/" { "/package.json".into() } else { format!("{}/package.json", base) };
+    vfs.write(&p, pkg_json.into())?;
+    
+    Ok(json!({ "template": template, "scaffolded": true, "path": base }))
+}
+
+fn skill_debug_error(call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Value> {
+    let error_msg = str_arg(&call.arguments, "error_message")?;
+    let file = call.arguments["related_file"].as_str().unwrap_or("/");
+    let ctx = vfs.read(file).map(|b| String::from_utf8_lossy(&b).to_string()).unwrap_or_default();
+
+    Ok(json!({
+        "debug_context": format!("Analizando error: {}\nArchivo ({}) contiene:\n{}", error_msg, file, ctx),
+        "hint": "Genera el fix o envía patch_file"
+    }))
+}
+
+fn skill_explain_project(_call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Value> {
+    let entries = build_tree(vfs, "/", 3);
+    Ok(json!({
+        "structure": entries,
+        "hint": "Esta es la arquitectura estructural del repositorio al nivel superior."
+    }))
+}
+
+fn skill_refactor_code(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Result<Value> {
+    let path = str_arg(&call.arguments, "path")?;
+    let req = str_arg(&call.arguments, "instructions")?;
+    Ok(json!({ "status": "acknowledged", "path": path, "request": req, "hint": "Genera los patches con patch_file o write_file siguiendo el código." }))
+}
+
+fn skill_generate_tests(call: &ToolCall, _vfs: &Vfs) -> crate::error::Result<Value> {
+    let path = str_arg(&call.arguments, "path")?;
+    Ok(json!({ "status": "acknowledged", "path": path, "message": "Procede a usar write_file para el archivo .test.ts" }))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

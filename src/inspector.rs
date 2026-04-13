@@ -252,14 +252,47 @@ impl HighlightOverlay {
     }
 }
 
+// ── 6.3 Network Profiler & DevTools ───────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkEvent {
+    pub request_id: String,
+    pub method: String,
+    pub url: String,
+    pub status: u16,
+    pub duration_ms: u64,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceTimeline {
+    pub events: Vec<PerformanceEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceEntry {
+    pub name: String,
+    pub entry_type: String,
+    pub start_time: f64,
+    pub duration: f64,
+}
+
 // ── Session del inspector ─────────────────────────────────────────────────────
 
-/// Estado de la sesión de inspección activa.
+/// Estado de la sesión de inspección activa y DevTools.
 #[derive(Debug, Default)]
 pub struct InspectorSession {
     pub active: bool,
     pub selected: Option<InspectedNode>,
     pub history: Vec<InspectedNode>,
+    pub network_events: Vec<NetworkEvent>,
+    pub timeline: PerformanceTimeline,
+}
+
+impl Default for PerformanceTimeline {
+    fn default() -> Self {
+        Self { events: Vec::new() }
+    }
 }
 
 impl InspectorSession {

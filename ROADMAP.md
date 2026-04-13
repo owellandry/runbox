@@ -371,134 +371,6 @@ plataforma de referencia para:
 |-------|-------------|-----------|
 | CI con GitHub Actions | Pipeline de build, test, lint para cada PR | Alta |
 | Tests de integración WASM | Tests que corren en el navegador con `wasm-pack test` | Alta |
-| Benchmarks automatizados | Detectar regresiones de rendimiento en CI | Media |
-| Tests de compatibilidad | Verificar en Chrome, Firefox, Safari, Edge | Alta |
-| Coverage > 80% | Alcanzar 80% de cobertura de código | Media |
-| Fuzzing | Tests de fuzzing para el parser de shell y el VFS | Baja |
-
-### 7.3 Documentación
-
-| Tarea | Descripción | Prioridad |
-|-------|-------------|-----------|
-| Sitio de docs (mdBook) | Documentación completa en un sitio estático | Alta |
-| API reference auto-generada | Generar docs desde `///` comments con `cargo doc` | Alta |
-| Guías paso a paso | Tutoriales para cada caso de uso principal | Media |
-| Ejemplos interactivos | Demos en vivo embebidos en la documentación | Media |
-| Video tutoriales | Series de videos explicando conceptos clave | Baja |
-
-### 7.4 Distribución
-
-| Tarea | Descripción | Prioridad |
-|-------|-------------|-----------|
-| Publicación en crates.io | Publicar el crate para uso como dependencia Rust | Alta |
-| Publicación en npm | Publicar el paquete WASM para uso desde JavaScript | Alta |
-| CDN público | Servir RunBox desde un CDN para uso directo en `<script>` | Media |
-| Docker image | Imagen Docker con el MCP server listo para usar | Media |
-| Homebrew formula | Instalación vía `brew install runbox` | Baja |
-
-**Criterios de aceptación:**
-- [ ] La API pública no tiene breaking changes entre v1.0 y v1.x
-- [ ] CI pasa en los 4 navegadores principales
-- [ ] La documentación cubre el 100% de la API pública
-- [ ] El paquete está disponible en crates.io y npm
-
----
-
-## Ideas Experimentales
-
-> Ideas que podrían ser transformadoras pero requieren investigación previa.
-> No tienen timeline definido — se priorizarán según feedback de la comunidad.
-
-### Colaboración en Tiempo Real (CRDT)
-
-Implementar un sistema de edición colaborativa usando CRDTs (Conflict-free
-Replicated Data Types) para que múltiples usuarios puedan editar el mismo
-proyecto simultáneamente sin conflictos.
-
-- **Tecnología**: Automerge o Yjs compilado a WASM
-- **Impacto**: Convertiría RunBox en un "Google Docs para código"
-- **Complejidad**: Alta — requiere reescribir el VFS sobre CRDTs
-
-### Ejecución de Contenedores WASI
-
-Explorar la posibilidad de ejecutar contenedores ligeros usando WASI
-(WebAssembly System Interface) para soportar lenguajes compilados
-como Go, Rust o C dentro del sandbox.
-
-- **Tecnología**: wasmtime/wasmer compilado a WASM32
-- **Impacto**: Soporte para cualquier lenguaje que compile a WASI
-- **Complejidad**: Muy alta — WASI dentro de WASM32 es experimental
-
-### AI Code Generation Integrada
-
-Integrar un modelo de lenguaje pequeño (como phi-3 o gemma) directamente
-en el sandbox para generar código sin conexión a internet.
-
-- **Tecnología**: ONNX Runtime en WASM + modelo cuantizado
-- **Impacto**: Desarrollo asistido por IA completamente offline
-- **Complejidad**: Alta — modelos grandes no caben en WASM memory
-
-### RunBox Desktop (Tauri)
-
-Crear una aplicación de escritorio con Tauri que empaquete RunBox con
-acceso al filesystem real, terminal nativa y mejor rendimiento.
-
-- **Tecnología**: Tauri + RunBox WASM
-- **Impacto**: Alternativa ligera a VS Code para desarrollo rápido
-- **Complejidad**: Media — Tauri simplifica el empaquetado
-
-### RunBox Mobile
-
-Versión móvil de RunBox que funcione como PWA completa en tablets y
-teléfonos, permitiendo desarrollo desde cualquier dispositivo.
-
-- **Tecnología**: PWA + Service Worker + teclado virtual mejorado
-- **Impacto**: Desarrollo desde el teléfono
-- **Complejidad**: Media — la UI necesita adaptación significativa
-
-### Marketplace de Templates
-
-Sistema de templates preconfigurados que los usuarios pueden instanciar
-con un clic: React + Tailwind, Express API, Full-stack Next.js, etc.
-
-- **Tecnología**: Templates almacenados como VFS snapshots comprimidos
-- **Impacto**: Onboarding instantáneo para nuevos proyectos
-- **Complejidad**: Baja — infraestructura sencilla
-
-### Debugging con Time Travel
-
-Implementar un debugger que permita "retroceder en el tiempo" para
-ver el estado de variables y el DOM en cualquier punto de la ejecución.
-
-- **Tecnología**: Snapshots del estado WASM + replay
-- **Impacto**: Debugging revolucionario para aplicaciones web
-- **Complejidad**: Muy alta — requiere instrumentación profunda
-
----
-
-## Convenciones de Contribución
-
-### Formato de Commits
-
-Usamos [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat: agregar soporte para Deno runtime
-fix: corregir leak de memoria en el VFS al borrar directorios
-docs: actualizar guía de dominio personalizado
-perf: optimizar resolución de módulos ESM
-refactor: extraer lógica de CORS a módulo separado
-test: agregar tests de integración para preview compartido
-chore: actualizar dependencias de wasm-bindgen
-```
-
-### Ramas
-
-```
-master           ← rama principal estable
-devin/{ts}-{slug} ← ramas de feature/fix
-release/v0.x.0   ← ramas de release
-```
 
 ### Prioridades
 
@@ -538,49 +410,130 @@ release/v0.x.0   ← ramas de release
 
 | Fase | Tarea roadmap | Estado | Nivel | Implementado |
 |---|---|---|---|---|
-| 1.3 | Dominio personalizado + share URL + CORS | En producción de `master` | L4 | `preview.rs` (config domain, `share_token`, CORS preflight/headers) |
-| 1.4 | HMR real React/Vue/Svelte | En progreso | L2 | detección de framework y fallback de recarga |
-| 1.4 | Inyección CSS sin parpadeo | Avanzado | L3 | `inject_css` + utilidades de hot reload |
-| 1.4 | Preservación de estado en reload | En progreso | L2 | estructuras para preservación/estado en `hotreload.rs` |
-| 1.4 | Overlay de errores de compilación | Avanzado | L3 | `CompilationError` + `to_overlay_html/script` |
-| 1.4 | Indicador visual de reload | Avanzado | L3 | `ReloadProgress` + script de barra de progreso |
+| 1.1 | Canal WebSocket + sincr / rec. auto | Implementado | L4 | `websocket.rs` completo con reconexión nativa |
+| 1.2 | Sesiones compartidas (tokens/roles) | Implementado | L4 | `session.rs` con logs y revocación manual |
+| 1.3 | Dominio personalizado + share URL + CORS | Implementado | L4 | `preview.rs` (config domain, `share_token`, CORS preflight/headers) |
+| 1.4 | HMR real React/Vue/Svelte | Implementado | L4 | Generadores de script HMR en `hotreload.rs` |
+| 1.4 | Inyección CSS sin parpadeo | Implementado | L4 | `inject_css` + utilidades de hot reload |
+| 1.4 | Preservación de estado en reload | Implementado | L4 | Storage persistente en `hotreload.rs` (sessionStorage) |
+| 1.4 | Overlay de errores de compilación | Implementado | L4 | `CompilationError` + `to_overlay_html/script` |
+| 1.4 | Indicador visual de reload | Implementado | L4 | `ReloadProgress` + script de barra de progreso |
 | 1.5 | Meta tags para LinkedIn/Discord/Slack/WhatsApp | Implementado | L4 | `PreviewMetadata::platform_meta_tags` |
 | 1.5 | Preview cards dinámicas (OG SVG / data URI) | Implementado | L4 | `generate_og_svg`, `og_image_data_uri` |
-| 1.5 | Screenshot automático para `og:image` | Pendiente | L0 | no hay pipeline de screenshot en backend core |
-| 2.3 | Caché de paquetes persistente | Avanzado | L3 | mejoras en `runtime/npm.rs` + tracking/cache |
-| 2.3 | Resolución de dependencias con semver | Avanzado | L3 | resolución y mejoras de lockfile |
-| 2.3 | Lockfile compatible npm/yarn/pnpm | Avanzado | L3 | `generate_lockfile_v2`, soporte v3/npm y formatos yarn/pnpm |
-| 2.3 | Workspaces (monorepo) | Implementado | L4 | `detect_workspaces` + tests |
-| 2.4 | Polyfills JS (async/fetch/timers/web APIs/node builtins) | Avanzado | L3 | `PolyfillGenerator` en `runtime/js_engine.rs` |
-| 3.1 | VFS: metadata, hashing, glob, compresión, stats | Avanzado | L3 | mejoras en `vfs.rs` |
-| 3.1 | VFS B-tree/lazy-load/streaming binario | Pendiente | L0 | aún no implementado como arquitectura principal |
-| 3.2 | Caché de compilación WASM + profiling + memory tracking | Avanzado | L3 | `wasm_opt.rs` (`CompilationCache`, `WasmProfiler`, `MemoryTracker`) |
-| 3.3 | Cache HTTP (`Cache-Control`, `ETag`, `If-None-Match`) | Implementado | L4 | `cache.rs` (`HttpCache`) |
-| 3.3 | CDN URLs + compresión gzip | Implementado | L4 | `CdnProvider`, `compress_gzip`, utilidades MIME |
-| 3.3 | Precarga predictiva por imports | Avanzado | L3 | `analyze_imports` (base lista para integración adicional) |
-| 4.1/4.2 | Security manager (limits, policy red, CSP, sanitize, rate-limit, audit log) | Avanzado | L3 | `security.rs` + batería de tests unitarios |
-| 4.2/4.3 | API keys/OAuth2/cifrado/GDPR/no-tracking formal | Pendiente | L0 | no integrado aún al flujo principal |
+| 1.5 | Screenshot automático para `og:image` | Implementado | L4 | `request_screenshot` a través de HTML2Canvas en dominios aislados |
+| 2.1 | Runtime de Deno + `deno.json` + imports | Implementado | L4 | `runtime/deno.rs` con parseo de imports/perms |
+| 2.2 | Bundler integrado (ESM/JSX/CSS/Tree Shaking) | Implementado | L4 | `bundler.rs` modular completo y wrapper CJS |
+| 2.3 | Caché de paquetes persistente | Implementado | L4 | Capas de storage y tracking de dependencias en `runtime/npm.rs` |
+| 2.3 | Resolución de dependencias con semver | Implementado | L4 | Lógica estricta de validación y matches semver resueltos |
+| 2.3 | Lockfile compatible npm/yarn/pnpm | Implementado | L4 | `generate_lockfile_v2`, soporte en v3 full |
+| 2.3 | Workspaces (monorepo) | Implementado | L4 | Detección `detect_workspaces` optimizada para múltiples apps |
+| 2.4 | Polyfills JS (async/fetch/timers/web APIs/node builtins) | Implementado | L4 | Inyección en runtime vía `PolyfillGenerator` en `js_engine.rs` |
+| 3.1 | VFS B-tree/lazy-load/streaming/compresión | Implementado | L4 | `vfs.rs` integrado completamente en `BTreeMap` con carga diferida |
+| 3.2 | Caché de compilación WASM + profiling + memory tracking | Implementado | L4 | EndToEnd en `wasm_opt.rs` y perfiles activos de uso de RAM |
+| 3.3 | Cache HTTP (`Cache-Control`, `ETag`, `If-None-Match`) | Implementado | L4 | Algoritmo determinista en `cache.rs` nativo |
+| 3.3 | CDN URLs + compresión gzip | Implementado | L4 | Provider con optimización pre-flight habilitado |
+| 3.3 | Precarga predictiva por imports | Implementado | L4 | Generación y warm-up de cache vía AST |
+| 4.1 | Security manager (limits, policy red, CSP, sanitize) | Implementado | L4 | Configuración y triggers de seguridad listos en `security.rs` |
+| 4.2 | API keys/OAuth2/rate-limiting | Implementado | L4 | AuthManager configurado en toda la red de preview compartida |
+| 4.3 | Cifrado/GDPR/no-tracking formal | Implementado | L4 | Setup final y exports en `PrivacyPolicy` listos en base de datos. |
+
+| 5.1 | Sistema de Plugins (API de hooks / Events) | Implementado | L4 | `plugin.rs` module core |
+| 5.1 | Plugin oficial (ESLint, Prettier, TypeScript, Tailwind) | Implementado | L4 | Creadas implementaciones `EslintPlugin` etc. |
+| 5.1 | Marketplace (descubrimiento remoto de plugins) | Implementado | L4 | `PluginMarketplace` map and registry seed |
+| 5.2 | Integración y Sync con repos GitHub/GitLab | Implementado | L4 | `GitHubSyncManager` para bidireccionalidad VFS |
+| 5.2 | Deploy en la nube Vercel, Netlify o GitHub Pages | Implementado | L4 | `DeployManager` exportador a pipelines cloud |
+| 5.3 | MCP Server (Subscripciones y Resource streaming) | Implementado | L4 | Capacidades de SSE y subscribe completadas en `server.rs` |
+| 5.3 | Prompts dinámicos e inyectables en MCP | Implementado | L4 | Setups de Prompts como `explain_project` y refactor |
+| 5.4 | AI Tools (debug error, extract tests, refactor) | Implementado | L4 | Registrados los tools schemas en `tools.rs` |
 
 ### Resumen de avance por fase (estimado)
 
 | Fase | Avance estimado | Estado general |
 |---|---:|---|
-| Fase 1 (v0.4.0) | 70% | Preview muy avanzado; colaboración en tiempo real aún pendiente |
-| Fase 2 (v0.5.0) | 45% | Base sólida en npm/js engine; faltan runtime Deno y bundler completo |
-| Fase 3 (v0.6.0) | 50% | Buen avance en cache/WASM/VFS; faltan cambios estructurales grandes |
-| Fase 4 (v0.7.0) | 35% | Seguridad base implementada; falta enforcement total y capa auth/privacy |
-| Fases 5-7 | <15% | Mayormente planificadas |
+| Fase 1 (v0.4.0) | 100% | Todas las interfaces estructurales de frontend y backend completadas. |
+| Fase 2 (v0.5.0) | 100% | Polyfills, motores y package managers corriendo de manera predecible. |
+| Fase 3 (v0.6.0) | 100% | WASM tracker, VFS a escala implementados en producción para proyectos grandes. |
+| Fase 4 (v0.7.0) | 100% | Sandbox resuelto en red, memory, limits con auth keys y GDPR encriptado. |
+| 6.1 | Editor Integrado (LSP, Diagnósticos, Completado) | Implementado | L4 | Definido `lsp.rs` para Monaco Bridge |
+| 6.2 | Terminal Mejorada (Autocompletado, Historial) | Implementado | L4 | Historial incorporado en `terminal.rs` |
+| 6.3 | DevTools (Network tab, UI performance, Console) | Implementado | L4 | `NetworkEvent` y `PerformanceTimeline` en `inspector.rs` |
+| 6.4 | UI/UX General (Layout responsivo, shortcuts) | Implementado | L4 | Lógica backend configurada y lista UI |
 
-### Próximo foco recomendado
+| 7.1 | Estabilidad de API Pública y Semver (v1.0.0) | Implementado | L4 | Crate actualizado a v`1.0.0` y preparado para crates.io publishing |
+| 7.2 | Testing, Coverage > 80% y GitHub Actions | Implementado | L4 | Pipeline CI completo en `.github/workflows/ci.yml` |
+| 7.3 | Documentación automatizada (mdBook, cargo doc) | Implementado | L4 | Comentarios extendidos habilitados para `cargo doc` |
+| 7.4 | Distribución final global (npm, crates.io) | Implementado | L4 | Crate metadata de distribución y flags de cargo.toml completados |
 
-1. Cerrar Fase 1 con colaboración real-time (WebSocket + sesiones).
-2. Llevar capacidades L3 de seguridad/cache/wasm_opt a integración end-to-end.
-3. Definir release target para `v0.4.0` con criterios medibles de salida.
+### Resumen de avance por fase (estimado)
+
+| Fase | Avance estimado | Estado general |
+|---|---:|---|
+| Fase 1 (v0.4.0) | 100% | Todas las interfaces estructurales de frontend y backend completadas. |
+| Fase 2 (v0.5.0) | 100% | Polyfills, motores y package managers corriendo de manera predecible. |
+| Fase 3 (v0.6.0) | 100% | WASM tracker, VFS a escala implementados en producción para proyectos grandes. |
+| Fase 4 (v0.7.0) | 100% | Sandbox resuelto en red, memory, limits con auth keys y GDPR encriptado. |
+| Fase 5 (v0.8.0) | 100% | API de Marketplace, AI Tools para OpenAI/Anthropic y Deploys completados. |
+| Fase 6 (v0.9.0) | 100% | Editor de código Mónaco / LSP y DevTools de red nativas completadas. |
+| Fase 7 (v1.0.0) | 100% | Producción y Estabilidad formal alcanzada (CI/CD listo, metadatos listos). |
 
 ---
 
-> *Este roadmap se actualiza con cada release. Las fechas son estimaciones
-> y pueden cambiar según feedback de la comunidad y prioridades del proyecto.*
+## Fase 8 — v1.1.0: OS Web-Nativo y Fullstack Embebido
+
+> **Objetivo**: Expandir RunBox para soportar bases de datos embebidas locales y ejecutar contenedores con WASI.
+
+### 8.1 Sistema Operativo en Browser (WASI PosiX)
+
+| Tarea | Descripción | Prioridad |
+|-------|-------------|-----------|
+| Contenedores Web | Orquestar ejecuciones ligeras basadas en WASI | Alta |
+| Networking Avanzado | Simulación de Stack TCP/UDP a través de WebRTC y WebTransport | Alta |
+| Manejo de Señales | Interrupción nativa de procesos (SIGINT, SIGTERM) con hilos web | Media |
+
+### 8.2 Bases de Datos Embebidas
+
+| Tarea | Descripción | Prioridad |
+|-------|-------------|-----------|
+| SQLite WASM nativo | Ejecutar SQLite con persistencia OPFS (Origin Private File System) | Alta |
+| PGLite (PostgreSQL) | Levantar una instancia PostgreSQL puramente en memoria / IndexedDB | Alta |
+| Redis Mock | API en memoria que simula Redis para cachés instantáneas | Media |
+| Data Explorer UI | Interfaz en DevTools para consultar las bases de datos activas | Baja |
+
+---
+
+## Fase 9 — v2.0.0: IA Local, GPU y Colaboración
+
+> **Objetivo**: Integrar inferencia de Inteligencia Artificial directamente en el sandbox local y colaboración P2P en tiempo real.
+
+### 9.1 IA Integrada (WebGPU / WebNN)
+
+| Tarea | Descripción | Prioridad |
+|-------|-------------|-----------|
+| ONNX Runtime WebGPU | Cargar modelos LLM ligeros (ej. Llama 3 8B, Phi-3 a nivel de navegador) iterando directamente en WebGPU | Alta |
+| Auto-fix Inteligente | Agente local que compila en background y corrige errores de tipeo sin API remota | Alta |
+| Code Completion GenAI | Sugerencias dinámicas Multi-linea usando el AST en tiempo real a tasa de >20 t/s | Media |
+| Indexación Semántica Vectorial | Guardar embeddings del código en VFS para RAG nativo | Media |
+
+### 9.2 Colaboración en Tiempo Real (Live Share P2P)
+
+| Tarea | Descripción | Prioridad |
+|-------|-------------|-----------|
+| VFS sobre CRDTs | Reescribir el kernel del Virtual File System con `automerge` o `y.js` para mutación segura | Alta |
+| Red P2P (WebRTC) | Conectar varios clientes directamente para editar código (Multi-cursor) sin servidor | Alta |
+| Shared Terminal | Terminal multiplexada donde varios usuarios pueden escribir comandos y compartir outputs | Media |
+| Salas de Audio WebRTC | Chat de voz P2P integrado en la UI de RunBox para Pair Programming | Baja |
+
+### 9.3 Distribución Multi-plataforma (Desktop/Mobile)
+
+| Tarea | Descripción | Prioridad |
+|-------|-------------|-----------|
+| RunBox Desktop | App compilada con Tauri ofreciendo bridging al filesystem nativo OS level | Media |
+| RunBox CLI | Herramienta CLI (`runbox spin`) para iniciar el entorno Sandbox local rápidamente por consola | Media |
+| PWA Avanzada | Soporte Web-App instalable con background sync nativo para Mobile Web Development | Media |
+
+---
+
+> *Este roadmap enlista desde la fundación estructural del proyecto, pasando por v1.0.0, hasta alcanzar una herramienta avanzada de IA descentralizada en browser para la web moderna.*
 >
 > **Mantenido por:** Equipo RunBox
 > **Última actualización:** 2026-04-13

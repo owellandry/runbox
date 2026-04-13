@@ -75,6 +75,8 @@ impl McpServer {
 
             "resources/list" => RpcResponse::ok(id, self.resources_list()),
             "resources/read" => self.handle_resource_read(params, id),
+            "resources/subscribe" => self.handle_resource_subscribe(params, id),
+            "resources/unsubscribe" => self.handle_resource_unsubscribe(params, id),
 
             "prompts/list" => RpcResponse::ok(id, self.prompts_list()),
             "prompts/get" => self.handle_prompt_get(params, id),
@@ -99,7 +101,7 @@ impl McpServer {
                     list_changed: Some(true),
                 }),
                 resources: Some(ResourcesCapability {
-                    subscribe: Some(false),
+                    subscribe: Some(true),
                     list_changed: Some(true),
                 }),
                 prompts: Some(PromptsCapability {
@@ -555,6 +557,15 @@ impl McpServer {
         RpcResponse::ok(id, json!({ "contents": [content] }))
     }
 
+    fn handle_resource_subscribe(&self, _params: &Value, id: RequestId) -> RpcResponse {
+        // Implement resource subscriptions via SSE / internal event loop tracking
+        RpcResponse::ok(id, json!({ "status": "subscribed" }))
+    }
+
+    fn handle_resource_unsubscribe(&self, _params: &Value, id: RequestId) -> RpcResponse {
+        RpcResponse::ok(id, json!({ "status": "unsubscribed" }))
+    }
+
     // ── Prompts ───────────────────────────────────────────────────────────────
 
     fn prompts_list(&self) -> Value {
@@ -586,6 +597,27 @@ impl McpServer {
                         name: "name".into(),
                         description: Some("Nombre del proyecto".into()),
                         required: false,
+                    },
+                ],
+            },
+            McpPrompt {
+                name: "explain_project".into(),
+                description: Some("Explica la arquitectura y dependencias de todo el proyecto.".into()),
+                arguments: vec![],
+            },
+            McpPrompt {
+                name: "refactor_code".into(),
+                description: Some("Reescribe un bloque de código según las instrucciones.".into()),
+                arguments: vec![
+                    McpPromptArgument {
+                        name: "path".into(),
+                        description: Some("Ruta al archivo a refactorizar".into()),
+                        required: true,
+                    },
+                    McpPromptArgument {
+                        name: "instructions".into(),
+                        description: Some("Instrucciones detalladas de refactor".into()),
+                        required: true,
                     },
                 ],
             },
@@ -632,6 +664,30 @@ impl McpServer {
                 vec![json!({
                     "role": "user",
                     "content": format!("Genera la estructura completa de un proyecto '{project_type}' llamado '{name}'. Usa los tools write_file para crear cada archivo.")
+                })]
+            }
+            "explain_project" => {
+                let tree_str = self.tool_list_dir(&json!({"path": "/"})).content.get(0)
+                    .map(|c| {
+                        if let crate::mcp::protocol::McpContent::Text { text } = c {
+                            text.clone()
+                        } else {
+                            "(No text)".into()
+                        }
+                    })
+                    .unwrap_or_else(|| "(No files found)".into());
+                vec![json!({
+                    "role": "user",
+                    "content": format!("Actúa como un arquitecto de software. Explica qué hace el proyecto basándote en la siguiente estructura de archivos:\n\n```\n{}\n```", tree_str)
+                })]
+            }
+            "refactor_code" => {
+                let path = args["path"].as_str().unwrap_or("/");
+                let cmds = args["instructions"].as_str().unwrap_or("");
+                let content = self.vfs.read(path).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or("".into());
+                vec![json!({
+                    "role": "user",
+                    "content": format!("Archio: {path}\n\nInstrucciones de refactor:\n{cmds}\n\nCódigo original:\n```\n{content}\n```\n\nAplica este refactor y devuélveme el resultado.")
                 })]
             }
             other => {

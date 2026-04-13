@@ -1,7 +1,13 @@
 [package]
 name = "runbox"
-version = "0.3.9"
+version = "1.0.0"
 edition = "2024"
+authors = ["RunBox Ecosystem <team@runbox.dev>"]
+description = "High-performance WASM sandbox and development runtime for the browser."
+repository = "https://github.com/runbox/runbox-core"
+license = "MIT"
+readme = "README.md"
+categories = ["wasm", "development-tools", "compilers"]
 
 [lib]
 # Necesario para wasm-pack (WASM) y para reutilizar el crate en nativo.

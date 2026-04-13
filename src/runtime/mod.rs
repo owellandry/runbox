@@ -1,4 +1,5 @@
 pub mod bun;
+pub mod deno;
 pub mod git;
 pub mod js_engine;
 pub mod npm;

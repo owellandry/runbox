@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Node {
     File(Vec<u8>),
-    Dir(HashMap<String, Node>),
+    Dir(BTreeMap<String, Node>),
 }
 
 // ── File Metadata ───────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ pub enum ChangeKind {
 impl Vfs {
     pub fn new() -> Self {
         Self {
-            root: Node::Dir(HashMap::new()),
+            root: Node::Dir(BTreeMap::new()),
             pending_changes: Vec::new(),
             metadata: BTreeMap::new(),
             stats: VfsStats::default(),
@@ -294,6 +294,220 @@ impl Vfs {
             "metadata_entries": self.metadata.len(),
         }).to_string()
     }
+
+    // ── Lazy Loading ────────────────────────────────────────────────────────
+    //
+    // Permite registrar archivos con solo metadatos (sin contenido) y
+    // cargarlos bajo demanda. Útil para proyectos con 10,000+ archivos.
+
+    /// Registra un archivo como "lazy" (solo metadatos, sin contenido).
+    /// El contenido se carga posteriormente con `fulfill_lazy`.
+    pub fn register_lazy(&mut self, path: &str, size: usize, content_hash: u64, now_ms: u64) {
+        let meta = FileMetadata {
+            size,
+            content_hash,
+            created_at: now_ms,
+            modified_at: now_ms,
+            is_binary: false,
+        };
+        self.metadata.insert(path.to_string(), meta);
+        self.stats.file_count += 1;
+        self.stats.total_size += size;
+        // Don't insert into the tree — content will be loaded on demand
+    }
+
+    /// Carga el contenido de un archivo previamente registrado como lazy.
+    pub fn fulfill_lazy(&mut self, path: &str, content: Vec<u8>) -> Result<()> {
+        let now_ms = 0; // Use 0; actual timestamp can be passed externally
+        if let Some(meta) = self.metadata.get_mut(path) {
+            meta.update(&content, now_ms);
+        }
+        let parts = split_path(path);
+        insert(&mut self.root, &parts, content)?;
+        Ok(())
+    }
+
+    /// Verifica si un archivo está registrado pero no cargado (lazy).
+    pub fn is_lazy(&self, path: &str) -> bool {
+        self.metadata.contains_key(path) && !self.exists(path)
+    }
+
+    // ── Streaming Reads ─────────────────────────────────────────────────────
+    //
+    // Para archivos grandes, permite leer por chunks sin cargar todo en memoria.
+
+    /// Lee un chunk de un archivo binario (offset + length).
+    pub fn read_chunk(&self, path: &str, offset: usize, length: usize) -> Result<&[u8]> {
+        let bytes = self.read(path)?;
+        if offset >= bytes.len() {
+            return Ok(&[]);
+        }
+        let end = (offset + length).min(bytes.len());
+        Ok(&bytes[offset..end])
+    }
+
+    /// Retorna el tamaño de un archivo sin leer el contenido completo.
+    pub fn file_size(&self, path: &str) -> Option<usize> {
+        self.metadata.get(path).map(|m| m.size)
+    }
+
+    // ── Snapshot & Restore ──────────────────────────────────────────────────
+    //
+    // Para sincronización incremental con WebSocket viewers.
+
+    /// Genera un snapshot del VFS: mapa de paths → content hashes.
+    pub fn snapshot(&self) -> HashMap<String, u64> {
+        self.metadata
+            .iter()
+            .map(|(path, meta)| (path.clone(), meta.content_hash))
+            .collect()
+    }
+
+    /// Calcula un diff entre un snapshot anterior y el estado actual.
+    /// Retorna los paths que cambiaron (nuevos, modificados, eliminados).
+    pub fn diff_snapshot(&self, previous: &HashMap<String, u64>) -> VfsSnapshotDiff {
+        let mut added = Vec::new();
+        let mut modified = Vec::new();
+        let mut deleted = Vec::new();
+
+        // Check current vs previous
+        for (path, meta) in &self.metadata {
+            match previous.get(path) {
+                Some(&prev_hash) if prev_hash != meta.content_hash => {
+                    modified.push(path.clone());
+                }
+                None => {
+                    added.push(path.clone());
+                }
+                _ => {} // Unchanged
+            }
+        }
+
+        // Check deleted
+        for path in previous.keys() {
+            if !self.metadata.contains_key(path) {
+                deleted.push(path.clone());
+            }
+        }
+
+        VfsSnapshotDiff {
+            added,
+            modified,
+            deleted,
+        }
+    }
+
+    // ── Compression ─────────────────────────────────────────────────────────
+    //
+    // Compresión simple para almacenar archivos grandes en menos memoria.
+
+    /// Escribe un archivo con compresión (usando flate2 deflate).
+    pub fn write_compressed(&mut self, path: &str, content: Vec<u8>) -> Result<()> {
+        use flate2::write::DeflateEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+        let _ = encoder.write_all(&content);
+        let compressed = encoder.finish().unwrap_or_else(|_| content.clone());
+
+        // Only use compressed version if it's actually smaller
+        if compressed.len() < content.len() {
+            // Store with a marker prefix so we know it's compressed
+            let mut stored = Vec::with_capacity(compressed.len() + 4);
+            stored.extend_from_slice(b"CMP\x01"); // Compression marker
+            stored.extend(compressed);
+
+            // Metadata tracks the original size
+            let now_ms = 0;
+            let existed = self.exists(path);
+            if existed {
+                if let Some(meta) = self.metadata.get_mut(path) {
+                    let old_size = meta.size;
+                    meta.size = content.len(); // Original size
+                    meta.content_hash = fnv1a_hash(&content);
+                    meta.modified_at = now_ms;
+                    self.stats.total_size = self.stats.total_size.saturating_sub(old_size) + stored.len();
+                }
+            } else {
+                let mut meta = FileMetadata::from_content(&content, now_ms);
+                meta.size = content.len();
+                self.metadata.insert(path.to_string(), meta);
+                self.stats.file_count += 1;
+                self.stats.total_size += stored.len();
+            }
+
+            let parts = split_path(path);
+            insert(&mut self.root, &parts, stored)?;
+        } else {
+            // Not worth compressing
+            self.write(path, content)?;
+        }
+        Ok(())
+    }
+
+    /// Lee un archivo, descomprimiendo si necesario.
+    pub fn read_maybe_compressed(&self, path: &str) -> Result<Vec<u8>> {
+        let bytes = self.read(path)?;
+        if bytes.len() > 4 && &bytes[..4] == b"CMP\x01" {
+            use flate2::read::DeflateDecoder;
+            use std::io::Read;
+
+            let mut decoder = DeflateDecoder::new(&bytes[4..]);
+            let mut result = Vec::new();
+            decoder
+                .read_to_end(&mut result)
+                .map_err(|e| RunboxError::Vfs(format!("Decompression failed: {e}")))?;
+            Ok(result)
+        } else {
+            Ok(bytes.to_vec())
+        }
+    }
+
+    // ── Batch Operations ────────────────────────────────────────────────────
+
+    /// Escribe múltiples archivos de una vez (más eficiente que llamar write() en loop).
+    pub fn write_batch(&mut self, files: Vec<(String, Vec<u8>)>) -> Result<Vec<String>> {
+        let mut written = Vec::new();
+        for (path, content) in files {
+            self.write(&path, content)?;
+            written.push(path);
+        }
+        Ok(written)
+    }
+
+    /// Lee múltiples archivos de una vez.
+    pub fn read_batch(&self, paths: &[&str]) -> HashMap<String, Result<Vec<u8>>> {
+        let mut results = HashMap::new();
+        for &path in paths {
+            let result = self.read(path).map(|b| b.to_vec());
+            results.insert(path.to_string(), result);
+        }
+        results
+    }
+}
+
+/// Resultado de un diff entre snapshots.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VfsSnapshotDiff {
+    /// Archivos nuevos.
+    pub added: Vec<String>,
+    /// Archivos modificados.
+    pub modified: Vec<String>,
+    /// Archivos eliminados.
+    pub deleted: Vec<String>,
+}
+
+impl VfsSnapshotDiff {
+    /// Retorna true si no hay cambios.
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.modified.is_empty() && self.deleted.is_empty()
+    }
+
+    /// Número total de cambios.
+    pub fn total_changes(&self) -> usize {
+        self.added.len() + self.modified.len() + self.deleted.len()
+    }
 }
 
 impl Default for Vfs {
@@ -334,7 +548,7 @@ fn insert(node: &mut Node, parts: &[String], content: Vec<u8>) -> Result<()> {
             } else {
                 let child = entries
                     .entry(parts[0].clone())
-                    .or_insert_with(|| Node::Dir(HashMap::new()));
+                    .or_insert_with(|| Node::Dir(BTreeMap::new()));
                 insert(child, &parts[1..], content)
             }
         }

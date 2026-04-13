@@ -53,6 +53,8 @@ pub struct Terminal {
     input_buf: VecDeque<InputChunk>,
     pub size: TerminalSize,
     capacity: usize,
+    /// Historial de comandos del usuario, fase 6.2 term
+    pub history: Vec<String>,
 }
 
 impl Terminal {
@@ -62,7 +64,23 @@ impl Terminal {
             input_buf: VecDeque::new(),
             size: TerminalSize::default(),
             capacity,
+            history: Vec::new(),
         }
+    }
+
+    pub fn add_history(&mut self, cmd: String) {
+        if !cmd.trim().is_empty() {
+            if let Some(last) = self.history.last() {
+                if last == &cmd {
+                    return; // Evita duplicados consecutivos
+                }
+            }
+            self.history.push(cmd);
+        }
+    }
+
+    pub fn get_history(&self) -> Vec<String> {
+        self.history.clone()
     }
 
     // ── Output (RunBox → xterm.js) ────────────────────────────────────────────

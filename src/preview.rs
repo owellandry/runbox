@@ -941,6 +941,25 @@ const LIVE_RELOAD_SCRIPT: &str = r#"
           window.location.href = data.url;
         }
         break;
+
+      case 'request_screenshot':
+        // Auto-generate screenshot for og:image
+        // In a real environment, this utilizes html2canvas or native mediaDevices API
+        try {
+          if (window.html2canvas) {
+            window.html2canvas(document.body).then(canvas => {
+                var dataUrl = canvas.toDataURL("image/png");
+                window.parent.postMessage({ __runbox: true, type: 'screenshot_result', dataUrl: dataUrl }, '*');
+            });
+          } else {
+            console.warn('[RunBox] html2canvas not found for auto-screenshot');
+            // Mock response if not available in current dom
+            window.parent.postMessage({ __runbox: true, type: 'screenshot_result', error: "not_available" }, '*');
+          }
+        } catch(e) {
+          console.error(e);
+        }
+        break;
     }
   });
 

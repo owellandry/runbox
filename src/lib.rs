@@ -1,20 +1,27 @@
 pub mod ai;
+pub mod auth;
+pub mod bundler;
 pub mod cache;
 pub mod console;
 pub mod error;
 pub mod hotreload;
 pub mod inspector;
+pub mod lsp;
 pub mod mcp;
 pub mod network;
+pub mod plugin;
+pub mod deploy;
 pub mod preview;
 pub mod process;
 pub mod runtime;
 pub mod sandbox;
 pub mod security;
+pub mod session;
 pub mod shell;
 pub mod terminal;
 pub mod vfs;
 pub mod wasm_opt;
+pub mod websocket;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
