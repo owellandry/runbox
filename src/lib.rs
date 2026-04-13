@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod cache;
 pub mod console;
 pub mod error;
 pub mod hotreload;
@@ -9,9 +10,11 @@ pub mod preview;
 pub mod process;
 pub mod runtime;
 pub mod sandbox;
+pub mod security;
 pub mod shell;
 pub mod terminal;
 pub mod vfs;
+pub mod wasm_opt;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

@@ -306,6 +306,14 @@ impl PreviewMetadata {
             html_escape(canonical_url)
         ));
         tags.push_str("<meta property=\"og:type\" content=\"website\">\n");
+        tags.push_str(&format!(
+            "<meta property=\"og:site_name\" content=\"{}\">\n",
+            html_escape(&self.title)
+        ));
+        tags.push_str(&format!(
+            "<meta property=\"og:locale\" content=\"{}\">\n",
+            html_escape(&self.lang)
+        ));
         if !self.description.is_empty() {
             tags.push_str(&format!(
                 "<meta property=\"og:description\" content=\"{}\">\n",
@@ -317,6 +325,8 @@ impl PreviewMetadata {
                 "<meta property=\"og:image\" content=\"{}\">\n",
                 html_escape(&self.image)
             ));
+            tags.push_str("<meta property=\"og:image:width\" content=\"1200\">\n");
+            tags.push_str("<meta property=\"og:image:height\" content=\"630\">\n");
         }
 
         // Twitter Card
@@ -341,10 +351,31 @@ impl PreviewMetadata {
             ));
         }
 
+        // LinkedIn / professional platforms
+        if !self.author.is_empty() {
+            tags.push_str(&format!(
+                "<meta name=\"article:author\" content=\"{}\">\n",
+                html_escape(&self.author)
+            ));
+        }
+
+        // Discord / Slack / WhatsApp rich previews (use OG as base)
+        // These platforms read og: tags, but we add specific helpers
+        if !self.image.is_empty() {
+            tags.push_str(&format!(
+                "<meta property=\"og:image:alt\" content=\"{}\">\n",
+                html_escape(&self.description)
+            ));
+        }
+
         // Favicon
         if !self.favicon.is_empty() {
             tags.push_str(&format!(
                 "<link rel=\"icon\" href=\"{}\">\n",
+                html_escape(&self.favicon)
+            ));
+            tags.push_str(&format!(
+                "<link rel=\"apple-touch-icon\" href=\"{}\">\n",
                 html_escape(&self.favicon)
             ));
         }
@@ -357,6 +388,129 @@ impl PreviewMetadata {
 
         tags
     }
+
+    /// Generate a placeholder SVG image for og:image when no image is provided.
+    /// This creates a branded card with the project title and description.
+    pub fn generate_og_svg(&self) -> String {
+        let title = html_escape(&self.title);
+        let desc = if self.description.is_empty() {
+            "RunBox Preview".to_string()
+        } else {
+            html_escape(&self.description)
+        };
+        let truncated_desc = if desc.len() > 100 {
+            format!("{}...", &desc[..97])
+        } else {
+            desc
+        };
+
+        let mut svg = String::new();
+        svg.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1200\" height=\"630\" viewBox=\"0 0 1200 630\">\n");
+        svg.push_str("  <defs>\n");
+        svg.push_str("    <linearGradient id=\"bg\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n");
+        svg.push_str("      <stop offset=\"0%\" style=\"stop-color:#1a1b2e\"/>\n");
+        svg.push_str("      <stop offset=\"100%\" style=\"stop-color:#16213e\"/>\n");
+        svg.push_str("    </linearGradient>\n");
+        svg.push_str("  </defs>\n");
+        svg.push_str("  <rect width=\"1200\" height=\"630\" fill=\"url(#bg)\"/>\n");
+        svg.push_str("  <rect x=\"40\" y=\"40\" width=\"1120\" height=\"550\" rx=\"16\" fill=\"#0f1123\" stroke=\"#333\" stroke-width=\"1\"/>\n");
+        svg.push_str(&format!("  <text x=\"100\" y=\"200\" font-family=\"sans-serif\" font-size=\"56\" font-weight=\"bold\" fill=\"#ffffff\">{title}</text>\n"));
+        svg.push_str(&format!("  <text x=\"100\" y=\"280\" font-family=\"sans-serif\" font-size=\"24\" fill=\"#8888aa\">{truncated_desc}</text>\n"));
+        svg.push_str("  <text x=\"100\" y=\"520\" font-family=\"sans-serif\" font-size=\"18\" fill=\"#666688\">Powered by RunBox</text>\n");
+        svg.push_str("  <rect x=\"100\" y=\"340\" width=\"200\" height=\"8\" rx=\"4\" fill=\"#4f46e5\" opacity=\"0.5\"/>\n");
+        svg.push_str("  <rect x=\"100\" y=\"370\" width=\"140\" height=\"8\" rx=\"4\" fill=\"#4f46e5\" opacity=\"0.3\"/>\n");
+        svg.push_str("  <rect x=\"100\" y=\"400\" width=\"260\" height=\"8\" rx=\"4\" fill=\"#4f46e5\" opacity=\"0.2\"/>\n");
+        svg.push_str("</svg>");
+        svg
+    }
+
+    /// Generate a dynamic OG card as a data URI for use as og:image fallback.
+    pub fn og_image_data_uri(&self) -> String {
+        let svg = self.generate_og_svg();
+        let encoded = base64_encode(svg.as_bytes());
+        format!("data:image/svg+xml;base64,{encoded}")
+    }
+
+    /// Generate meta tags optimized for a specific platform.
+    pub fn platform_meta_tags(&self, platform: SocialPlatform, canonical_url: &str) -> String {
+        match platform {
+            SocialPlatform::Twitter => {
+                let mut tags = String::new();
+                tags.push_str(&format!("<meta name=\"twitter:card\" content=\"{}\">\n", html_escape(&self.twitter_card)));
+                tags.push_str(&format!("<meta name=\"twitter:title\" content=\"{}\">\n", html_escape(&self.title)));
+                if !self.description.is_empty() {
+                    tags.push_str(&format!("<meta name=\"twitter:description\" content=\"{}\">\n", html_escape(&self.description)));
+                }
+                if !self.image.is_empty() {
+                    tags.push_str(&format!("<meta name=\"twitter:image\" content=\"{}\">\n", html_escape(&self.image)));
+                }
+                tags
+            }
+            SocialPlatform::LinkedIn => {
+                let mut tags = String::new();
+                tags.push_str(&format!("<meta property=\"og:title\" content=\"{}\">\n", html_escape(&self.title)));
+                tags.push_str(&format!("<meta property=\"og:type\" content=\"website\">\n"));
+                tags.push_str(&format!("<meta property=\"og:url\" content=\"{}\">\n", html_escape(canonical_url)));
+                if !self.description.is_empty() {
+                    tags.push_str(&format!("<meta property=\"og:description\" content=\"{}\">\n", html_escape(&self.description)));
+                }
+                if !self.image.is_empty() {
+                    tags.push_str(&format!("<meta property=\"og:image\" content=\"{}\">\n", html_escape(&self.image)));
+                }
+                tags
+            }
+            SocialPlatform::Discord => {
+                // Discord uses OG tags + theme-color for embed color
+                let mut tags = self.to_meta_tags(canonical_url);
+                tags.push_str(&format!("<meta name=\"theme-color\" content=\"{}\">\n", html_escape(&self.theme_color)));
+                tags
+            }
+            SocialPlatform::Slack => {
+                // Slack uses OG tags
+                self.to_meta_tags(canonical_url)
+            }
+            SocialPlatform::WhatsApp => {
+                // WhatsApp uses OG tags, prefers og:image
+                self.to_meta_tags(canonical_url)
+            }
+        }
+    }
+}
+
+/// Plataformas sociales soportadas para meta tags específicos.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SocialPlatform {
+    Twitter,
+    LinkedIn,
+    Discord,
+    Slack,
+    WhatsApp,
+}
+
+/// Simple base64 encoding (no padding).
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
 }
 
 // ── Preview session ─────────────────────────────────────────────────────────
@@ -1270,5 +1424,69 @@ mod tests {
         assert_eq!(html_escape("a<b>c"), "a&lt;b&gt;c");
         assert_eq!(html_escape("a&b"), "a&amp;b");
         assert_eq!(html_escape("a\"b"), "a&quot;b");
+    }
+
+    #[test]
+    fn og_svg_generation() {
+        let meta = PreviewMetadata {
+            title: "My Project".into(),
+            description: "A cool project".into(),
+            ..Default::default()
+        };
+        let svg = meta.generate_og_svg();
+        assert!(svg.contains("My Project"));
+        assert!(svg.contains("svg"));
+        assert!(svg.contains("1200"));
+    }
+
+    #[test]
+    fn og_image_data_uri() {
+        let meta = PreviewMetadata {
+            title: "Test".into(),
+            ..Default::default()
+        };
+        let uri = meta.og_image_data_uri();
+        assert!(uri.starts_with("data:image/svg+xml;base64,"));
+    }
+
+    #[test]
+    fn platform_specific_tags() {
+        let meta = PreviewMetadata {
+            title: "Platform Test".into(),
+            description: "Testing platforms".into(),
+            ..Default::default()
+        };
+        let twitter = meta.platform_meta_tags(SocialPlatform::Twitter, "https://example.com");
+        assert!(twitter.contains("twitter:card"));
+        assert!(twitter.contains("Platform Test"));
+
+        let linkedin = meta.platform_meta_tags(SocialPlatform::LinkedIn, "https://example.com");
+        assert!(linkedin.contains("og:title"));
+    }
+
+    #[test]
+    fn metadata_has_site_name_and_locale() {
+        let meta = PreviewMetadata {
+            title: "Site".into(),
+            lang: "es".into(),
+            ..Default::default()
+        };
+        let tags = meta.to_meta_tags("https://example.com");
+        assert!(tags.contains("og:site_name"));
+        assert!(tags.contains("og:locale"));
+        assert!(tags.contains("es"));
+    }
+
+    #[test]
+    fn metadata_image_dimensions() {
+        let meta = PreviewMetadata {
+            title: "Test".into(),
+            image: "https://img.example.com/og.png".into(),
+            ..Default::default()
+        };
+        let tags = meta.to_meta_tags("https://example.com");
+        assert!(tags.contains("og:image:width"));
+        assert!(tags.contains("og:image:height"));
+        assert!(tags.contains("og:image:alt"));
     }
 }
