@@ -5,7 +5,6 @@
 /// - Indicador de conexión (conectado/reconectando/offline)
 /// - Reconexión automática con backoff exponencial
 /// - Propagación de cambios a todos los viewers conectados
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -135,7 +134,11 @@ pub enum WsMessage {
         framework: Option<String>,
     },
     /// Muestra un error overlay.
-    Error { message: String, file: Option<String>, line: Option<u32> },
+    Error {
+        message: String,
+        file: Option<String>,
+        line: Option<u32>,
+    },
     /// Sincronización completa del VFS (snapshot).
     VfsSnapshot { files: HashMap<String, String> },
     /// Información de estado de la sesión.
@@ -622,7 +625,13 @@ mod tests {
         let mut ch = WsChannel::new();
         let ping = WsMessage::Ping { timestamp: 1000 };
         let response = ch.handle_message(&ping, 1050);
-        assert!(matches!(response, Some(WsMessage::Pong { timestamp: 1000, .. })));
+        assert!(matches!(
+            response,
+            Some(WsMessage::Pong {
+                timestamp: 1000,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -636,7 +645,9 @@ mod tests {
     #[test]
     fn viewer_ready_adds_viewer() {
         let mut ch = WsChannel::new();
-        let msg = WsMessage::ViewerReady { viewer_id: "v_test".to_string() };
+        let msg = WsMessage::ViewerReady {
+            viewer_id: "v_test".to_string(),
+        };
         ch.handle_message(&msg, 5000);
         assert_eq!(ch.viewer_count(), 1);
         assert!(ch.viewers().contains_key("v_test"));

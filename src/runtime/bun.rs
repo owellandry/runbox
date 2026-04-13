@@ -298,70 +298,6 @@ fn eval_into_vfs_modules(map: &std::collections::HashMap<String, String>) {
 /// - el archivo main/index y sus dependencias directas dentro del paquete
 /// Evita cargar miles de archivos de paquetes grandes como react-icons.
 #[cfg(target_arch = "wasm32")]
-fn pick_export_path(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(s) => Some(s.trim_start_matches("./").to_string()),
-        serde_json::Value::Array(arr) => {
-            for item in arr {
-                if let Some(path) = pick_export_path(item) {
-                    return Some(path);
-                }
-            }
-            None
-        }
-        serde_json::Value::Object(map) => {
-            for key in ["require", "node", "default", "import", "browser"] {
-                if let Some(v) = map.get(key) {
-                    if let Some(path) = pick_export_path(v) {
-                        return Some(path);
-                    }
-                }
-            }
-            for v in map.values() {
-                if let Some(path) = pick_export_path(v) {
-                    return Some(path);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn package_entry_candidates(pkg_json_bytes: &[u8]) -> Vec<String> {
-    let mut candidates = Vec::<String>::new();
-
-    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(pkg_json_bytes) {
-        if let Some(exports) = v.get("exports") {
-            let target = exports.get(".").unwrap_or(exports);
-            if let Some(path) = pick_export_path(target) {
-                candidates.push(path);
-            }
-        }
-
-        for field in ["main", "module", "browser"] {
-            if let Some(s) = v.get(field).and_then(|x| x.as_str()) {
-                candidates.push(s.trim_start_matches("./").to_string());
-            }
-        }
-    }
-
-    candidates.push("index.js".to_string());
-    candidates.push("index.cjs".to_string());
-    candidates.push("index.mjs".to_string());
-
-    // Keep insertion order while removing duplicates.
-    let mut deduped = Vec::new();
-    for c in candidates {
-        if !c.is_empty() && !deduped.contains(&c) {
-            deduped.push(c);
-        }
-    }
-    deduped
-}
-
-#[cfg(target_arch = "wasm32")]
 fn collect_npm_package(
     vfs: &crate::vfs::Vfs,
     pkg_root: &str,
@@ -422,11 +358,32 @@ fn collect_npm_package_recursive(
             let ext = entry.rsplit('.').next().unwrap_or("");
 
             // Skip non-useful files
-            if matches!(ext, "wasm" | "map" | "md" | "txt" | "ts" | "tsx"
-                | "d" | "flow" | "lock" | "yml" | "yaml" | "toml" | "log"
-                | "png" | "jpg" | "gif" | "svg" | "ico" | "woff" | "woff2"
-                | "ttf" | "eot" | "css")
-            {
+            if matches!(
+                ext,
+                "wasm"
+                    | "map"
+                    | "md"
+                    | "txt"
+                    | "ts"
+                    | "tsx"
+                    | "d"
+                    | "flow"
+                    | "lock"
+                    | "yml"
+                    | "yaml"
+                    | "toml"
+                    | "log"
+                    | "png"
+                    | "jpg"
+                    | "gif"
+                    | "svg"
+                    | "ico"
+                    | "woff"
+                    | "woff2"
+                    | "ttf"
+                    | "eot"
+                    | "css"
+            ) {
                 continue;
             }
 
@@ -459,22 +416,6 @@ fn collect_npm_package_recursive(
         } else {
             // It's a directory — recurse
             collect_npm_package_recursive(vfs, pkg_root, &full_path, pkg_name, out, depth + 1);
-        }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn load_file_to_map(
-    vfs: &crate::vfs::Vfs,
-    full_path: &str,
-    pkg_name: &str,
-    rel: &str,
-    out: &mut std::collections::HashMap<String, String>,
-) {
-    if let Ok(bytes) = vfs.read(full_path) {
-        if let Ok(content) = std::str::from_utf8(bytes) {
-            let key = format!("{pkg_name}/{}", rel.trim_start_matches("./"));
-            out.insert(key, content.to_string());
         }
     }
 }

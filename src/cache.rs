@@ -6,7 +6,6 @@
 /// - CDN URL generation para paquetes npm (esm.sh, skypack, unpkg)
 /// - Compresión de respuestas (gzip via flate2)
 /// - Preloading predictivo basado en análisis de imports
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -116,13 +115,12 @@ impl HttpCache {
         let size = body.len();
 
         // Parse Cache-Control header
-        let max_age = headers.get("cache-control")
+        let max_age = headers
+            .get("cache-control")
             .or_else(|| headers.get("Cache-Control"))
             .and_then(|cc| parse_max_age(cc));
 
-        let etag = headers.get("etag")
-            .or_else(|| headers.get("ETag"))
-            .cloned();
+        let etag = headers.get("etag").or_else(|| headers.get("ETag")).cloned();
 
         let expires_at = match max_age {
             Some(seconds) => now_ms + (seconds as u64 * 1000),
@@ -130,7 +128,10 @@ impl HttpCache {
         };
 
         // Check no-store
-        if let Some(cc) = headers.get("cache-control").or_else(|| headers.get("Cache-Control")) {
+        if let Some(cc) = headers
+            .get("cache-control")
+            .or_else(|| headers.get("Cache-Control"))
+        {
             if cc.contains("no-store") {
                 return; // Don't cache
             }
@@ -151,35 +152,40 @@ impl HttpCache {
             self.current_size = self.current_size.saturating_sub(old.body.len());
         }
 
-        self.entries.insert(url.to_string(), CacheEntry {
-            url: url.to_string(),
-            body,
-            headers,
-            etag,
-            cached_at: now_ms,
-            expires_at,
-            original_size: size,
-            hit_count: 0,
-        });
+        self.entries.insert(
+            url.to_string(),
+            CacheEntry {
+                url: url.to_string(),
+                body,
+                headers,
+                etag,
+                cached_at: now_ms,
+                expires_at,
+                original_size: size,
+                hit_count: 0,
+            },
+        );
         self.current_size += size;
     }
 
     /// Verifica si la respuesta del servidor indica que el cache es válido (304 Not Modified).
     pub fn validate_etag(&self, url: &str, server_etag: &str) -> bool {
-        self.entries.get(url)
+        self.entries
+            .get(url)
             .and_then(|e| e.etag.as_ref())
             .map_or(false, |cached_etag| cached_etag == server_etag)
     }
 
     /// Retorna el ETag almacenado para hacer If-None-Match requests.
     pub fn get_etag(&self, url: &str) -> Option<&str> {
-        self.entries.get(url)
-            .and_then(|e| e.etag.as_deref())
+        self.entries.get(url).and_then(|e| e.etag.as_deref())
     }
 
     /// Evicta la entrada menos recientemente usada.
     fn evict_lru(&mut self) {
-        let lru_key = self.entries.iter()
+        let lru_key = self
+            .entries
+            .iter()
             .min_by_key(|(_, e)| e.hit_count)
             .map(|(k, _)| k.clone());
 
@@ -226,7 +232,8 @@ impl HttpCache {
             "fill_percent": if self.max_size > 0 {
                 (self.current_size as f64 / self.max_size as f64 * 100.0) as u64
             } else { 0 }
-        }).to_string()
+        })
+        .to_string()
     }
 }
 
@@ -280,7 +287,9 @@ impl CdnProvider {
             CdnProvider::Esm => format!("https://esm.sh/{package}@{version}/{file}"),
             CdnProvider::Skypack => format!("https://cdn.skypack.dev/{package}@{version}/{file}"),
             CdnProvider::Unpkg => format!("https://unpkg.com/{package}@{version}/{file}"),
-            CdnProvider::Jsdelivr => format!("https://cdn.jsdelivr.net/npm/{package}@{version}/{file}"),
+            CdnProvider::Jsdelivr => {
+                format!("https://cdn.jsdelivr.net/npm/{package}@{version}/{file}")
+            }
         }
     }
 }
@@ -291,7 +300,10 @@ pub fn cdn_urls(package: &str, version: &str) -> HashMap<String, String> {
     urls.insert("esm".into(), CdnProvider::Esm.url(package, version));
     urls.insert("skypack".into(), CdnProvider::Skypack.url(package, version));
     urls.insert("unpkg".into(), CdnProvider::Unpkg.url(package, version));
-    urls.insert("jsdelivr".into(), CdnProvider::Jsdelivr.url(package, version));
+    urls.insert(
+        "jsdelivr".into(),
+        CdnProvider::Jsdelivr.url(package, version),
+    );
     urls
 }
 
@@ -369,8 +381,8 @@ fn extract_string_literal(s: &str) -> Option<String> {
 
 /// Comprime datos con gzip (usando flate2).
 pub fn compress_gzip(data: &[u8]) -> Vec<u8> {
-    use flate2::write::GzEncoder;
     use flate2::Compression;
+    use flate2::write::GzEncoder;
     use std::io::Write;
 
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -392,11 +404,17 @@ pub fn decompress_gzip(data: &[u8]) -> Option<Vec<u8>> {
 /// Determina si una respuesta debe comprimirse basándose en el Content-Type.
 pub fn should_compress(content_type: &str) -> bool {
     let compressible = [
-        "text/", "application/json", "application/javascript",
-        "application/xml", "application/xhtml", "application/wasm",
+        "text/",
+        "application/json",
+        "application/javascript",
+        "application/xml",
+        "application/xhtml",
+        "application/wasm",
         "image/svg+xml",
     ];
-    compressible.iter().any(|ct| content_type.starts_with(ct) || content_type.contains(ct))
+    compressible
+        .iter()
+        .any(|ct| content_type.starts_with(ct) || content_type.contains(ct))
 }
 
 /// Determina el Content-Type basado en la extensión del archivo.
@@ -465,7 +483,12 @@ mod tests {
         let mut cache = HttpCache::new(1024 * 1024);
         let mut headers = HashMap::new();
         headers.insert("cache-control".into(), "no-store".into());
-        cache.put("https://example.com/secret", b"data".to_vec(), headers, 1000);
+        cache.put(
+            "https://example.com/secret",
+            b"data".to_vec(),
+            headers,
+            1000,
+        );
 
         assert!(cache.get("https://example.com/secret", 2000).is_none());
     }
@@ -491,7 +514,10 @@ mod tests {
         headers.insert("ETag".into(), "\"abc123\"".into());
         cache.put("https://example.com/api", b"data".to_vec(), headers, 1000);
 
-        assert_eq!(cache.get_etag("https://example.com/api"), Some("\"abc123\""));
+        assert_eq!(
+            cache.get_etag("https://example.com/api"),
+            Some("\"abc123\"")
+        );
         assert!(cache.validate_etag("https://example.com/api", "\"abc123\""));
         assert!(!cache.validate_etag("https://example.com/api", "\"xyz\""));
     }
@@ -544,7 +570,10 @@ const dynamic = import('next/dynamic');
     #[test]
     fn content_type_detection() {
         assert_eq!(content_type_for_ext("html"), "text/html; charset=utf-8");
-        assert_eq!(content_type_for_ext("js"), "application/javascript; charset=utf-8");
+        assert_eq!(
+            content_type_for_ext("js"),
+            "application/javascript; charset=utf-8"
+        );
         assert_eq!(content_type_for_ext("png"), "image/png");
         assert_eq!(content_type_for_ext("wasm"), "application/wasm");
     }

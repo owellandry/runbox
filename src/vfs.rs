@@ -125,7 +125,8 @@ impl Vfs {
                 let old_size = meta.size;
                 let was_binary = meta.is_binary;
                 meta.update(&content, now_ms);
-                self.stats.total_size = self.stats.total_size.saturating_sub(old_size) + content.len();
+                self.stats.total_size =
+                    self.stats.total_size.saturating_sub(old_size) + content.len();
                 if was_binary && !is_binary {
                     self.stats.binary_count = self.stats.binary_count.saturating_sub(1);
                 } else if !was_binary && is_binary {
@@ -133,7 +134,10 @@ impl Vfs {
                 }
             }
         } else {
-            self.metadata.insert(path.to_string(), FileMetadata::from_content(&content, now_ms));
+            self.metadata.insert(
+                path.to_string(),
+                FileMetadata::from_content(&content, now_ms),
+            );
             self.stats.file_count += 1;
             self.stats.total_size += content.len();
             if is_binary {
@@ -241,7 +245,8 @@ impl Vfs {
 
     /// Verifica si el contenido de un archivo cambió comparando hashes.
     pub fn has_changed(&self, path: &str, previous_hash: u64) -> bool {
-        self.metadata.get(path)
+        self.metadata
+            .get(path)
             .map_or(true, |m| m.content_hash != previous_hash)
     }
 
@@ -251,7 +256,8 @@ impl Vfs {
     /// Soporta: * (cualquier nombre), ** (cualquier profundidad), ? (un carácter).
     pub fn glob(&self, pattern: &str) -> Vec<String> {
         let all_paths = self.all_file_paths();
-        all_paths.into_iter()
+        all_paths
+            .into_iter()
             .filter(|path| glob_matches(path, pattern))
             .collect()
     }
@@ -277,7 +283,8 @@ impl Vfs {
         } else {
             format!("{path}/")
         };
-        self.metadata.iter()
+        self.metadata
+            .iter()
             .filter(|(p, _)| p.starts_with(&prefix) || *p == path)
             .map(|(_, m)| m.size)
             .sum()
@@ -292,7 +299,8 @@ impl Vfs {
             "write_ops": self.stats.write_ops,
             "read_ops": self.stats.read_ops,
             "metadata_entries": self.metadata.len(),
-        }).to_string()
+        })
+        .to_string()
     }
 
     // ── Lazy Loading ────────────────────────────────────────────────────────
@@ -403,8 +411,8 @@ impl Vfs {
 
     /// Escribe un archivo con compresión (usando flate2 deflate).
     pub fn write_compressed(&mut self, path: &str, content: Vec<u8>) -> Result<()> {
-        use flate2::write::DeflateEncoder;
         use flate2::Compression;
+        use flate2::write::DeflateEncoder;
         use std::io::Write;
 
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
@@ -427,7 +435,8 @@ impl Vfs {
                     meta.size = content.len(); // Original size
                     meta.content_hash = fnv1a_hash(&content);
                     meta.modified_at = now_ms;
-                    self.stats.total_size = self.stats.total_size.saturating_sub(old_size) + stored.len();
+                    self.stats.total_size =
+                        self.stats.total_size.saturating_sub(old_size) + stored.len();
                 }
             } else {
                 let mut meta = FileMetadata::from_content(&content, now_ms);

@@ -209,14 +209,15 @@ impl RunboxInstance {
     pub fn ai_dispatch(&mut self, call_json: &str) -> String {
         use crate::ai::{skills::dispatch_with_preview, tools::ToolCall};
 
-        let result = serde_json::from_str::<ToolCall>(call_json)
-            .map(|call| dispatch_with_preview(
+        let result = serde_json::from_str::<ToolCall>(call_json).map(|call| {
+            dispatch_with_preview(
                 &call,
                 &mut self.vfs,
                 &mut self.pm,
                 &mut self.console,
                 Some(&mut self.preview),
-            ));
+            )
+        });
 
         match result {
             Ok(r) => serde_json::to_string(&r).unwrap_or_default(),
@@ -278,9 +279,7 @@ impl RunboxInstance {
                 self.preview_start(config_str, js_sys::Date::now() as u64)
             }
             SandboxCommand::StopPreview => self.preview_stop(),
-            SandboxCommand::SetPreviewDomain { domain } => {
-                self.preview_set_domain(&domain)
-            }
+            SandboxCommand::SetPreviewDomain { domain } => self.preview_set_domain(&domain),
             SandboxCommand::SharePreview => self.preview_share(),
             SandboxCommand::SetPreviewMetadata { metadata_json } => {
                 self.preview_set_metadata(&metadata_json)
@@ -472,7 +471,8 @@ impl RunboxInstance {
                 Err(e) => {
                     return serde_json::json!({
                         "error": format!("invalid preview config: {e}")
-                    }).to_string();
+                    })
+                    .to_string();
                 }
             }
         };
@@ -499,14 +499,17 @@ impl RunboxInstance {
     pub fn preview_set_domain(&mut self, domain: &str) -> String {
         match self.preview.set_domain(domain) {
             Ok(()) => {
-                let url = self.preview.current()
+                let url = self
+                    .preview
+                    .current()
                     .map(|s| s.base_url())
                     .unwrap_or_default();
                 serde_json::json!({
                     "ok": true,
                     "domain": domain,
                     "url": url,
-                }).to_string()
+                })
+                .to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
@@ -517,14 +520,17 @@ impl RunboxInstance {
     pub fn preview_share(&mut self) -> String {
         match self.preview.share() {
             Ok(url) => {
-                let session_id = self.preview.current()
+                let session_id = self
+                    .preview
+                    .current()
                     .map(|s| s.id.clone())
                     .unwrap_or_default();
                 serde_json::json!({
                     "ok": true,
                     "share_url": url,
                     "session_id": session_id,
-                }).to_string()
+                })
+                .to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
@@ -539,7 +545,8 @@ impl RunboxInstance {
             Err(e) => {
                 return serde_json::json!({
                     "error": format!("invalid metadata: {e}")
-                }).to_string();
+                })
+                .to_string();
             }
         };
 
@@ -550,7 +557,8 @@ impl RunboxInstance {
             }
             None => serde_json::json!({
                 "error": "no active preview session"
-            }).to_string(),
+            })
+            .to_string(),
         }
     }
 
@@ -563,7 +571,8 @@ impl RunboxInstance {
             Err(e) => {
                 return serde_json::json!({
                     "error": format!("invalid config: {e}")
-                }).to_string();
+                })
+                .to_string();
             }
         };
 
@@ -588,7 +597,8 @@ impl RunboxInstance {
                     "status": 400,
                     "headers": {},
                     "body": format!("invalid request: {e}"),
-                }).to_string();
+                })
+                .to_string();
             }
         };
 

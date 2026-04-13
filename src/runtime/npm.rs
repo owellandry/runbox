@@ -110,7 +110,9 @@ impl PackageCache {
 
         // Evict oldest if at capacity
         if self.entries.len() >= self.max_entries {
-            if let Some(oldest_key) = self.entries.iter()
+            if let Some(oldest_key) = self
+                .entries
+                .iter()
                 .min_by_key(|(_, e)| e.cached_at)
                 .map(|(k, _)| k.clone())
             {
@@ -204,11 +206,10 @@ impl SemVer {
                 // ^0.2.3 means >=0.2.3 <0.3.0 (for major = 0)
                 if c.major > 0 {
                     return self.major == c.major
-                        && (self.minor > c.minor || (self.minor == c.minor && self.patch >= c.patch));
+                        && (self.minor > c.minor
+                            || (self.minor == c.minor && self.patch >= c.patch));
                 } else if c.minor > 0 {
-                    return self.major == 0
-                        && self.minor == c.minor
-                        && self.patch >= c.patch;
+                    return self.major == 0 && self.minor == c.minor && self.patch >= c.patch;
                 } else {
                     return self.major == 0 && self.minor == 0 && self.patch == c.patch;
                 }
@@ -218,9 +219,7 @@ impl SemVer {
         if let Some(rest) = trimmed.strip_prefix('~') {
             if let Some(c) = SemVer::parse(rest) {
                 // ~1.2.3 means >=1.2.3 <1.3.0
-                return self.major == c.major
-                    && self.minor == c.minor
-                    && self.patch >= c.patch;
+                return self.major == c.major && self.minor == c.minor && self.patch >= c.patch;
             }
         }
 
@@ -287,14 +286,19 @@ pub fn detect_workspaces(vfs: &Vfs) -> Vec<WorkspacePackage> {
     };
 
     let workspace_patterns = match &root_pkg.workspaces {
-        Some(serde_json::Value::Array(arr)) => {
-            arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()
-        }
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect::<Vec<_>>(),
         Some(serde_json::Value::Object(obj)) => {
             // pnpm/yarn workspaces: { packages: [...] }
             obj.get("packages")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default()
         }
         _ => return vec![],
@@ -331,10 +335,11 @@ pub fn detect_workspaces(vfs: &Vfs) -> Vec<WorkspacePackage> {
 
 /// Generate improved lockfile with integrity hashes.
 pub fn generate_lockfile_v2(vfs: &Vfs, pm_name: &str) -> Result<String> {
-    let pkg = PackageJson::load(vfs)
-        .ok_or_else(|| RunboxError::NotFound("package.json".into()))?;
+    let pkg = PackageJson::load(vfs).ok_or_else(|| RunboxError::NotFound("package.json".into()))?;
 
-    let all_deps: Vec<(&str, &str)> = pkg.dependencies.iter()
+    let all_deps: Vec<(&str, &str)> = pkg
+        .dependencies
+        .iter()
         .chain(pkg.dev_dependencies.iter())
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
@@ -347,7 +352,9 @@ pub fn generate_lockfile_v2(vfs: &Vfs, pm_name: &str) -> Result<String> {
                 let hash = simple_integrity_hash(name, bare);
                 lines.push(format!("\"{name}@{ver}\":"));
                 lines.push(format!("  version \"{bare}\""));
-                lines.push(format!("  resolved \"https://registry.yarnpkg.com/{name}/-/{name}-{bare}.tgz#{hash}\""));
+                lines.push(format!(
+                    "  resolved \"https://registry.yarnpkg.com/{name}/-/{name}-{bare}.tgz#{hash}\""
+                ));
                 lines.push(format!("  integrity sha512-{hash}"));
                 lines.push(String::new());
             }
@@ -380,12 +387,15 @@ pub fn generate_lockfile_v2(vfs: &Vfs, pm_name: &str) -> Result<String> {
         _ => {
             // npm lockfile v3
             let mut packages = serde_json::Map::new();
-            packages.insert(String::new(), serde_json::json!({
-                "name": pkg.name,
-                "version": pkg.version,
-                "dependencies": pkg.dependencies,
-                "devDependencies": pkg.dev_dependencies,
-            }));
+            packages.insert(
+                String::new(),
+                serde_json::json!({
+                    "name": pkg.name,
+                    "version": pkg.version,
+                    "dependencies": pkg.dependencies,
+                    "devDependencies": pkg.dev_dependencies,
+                }),
+            );
             for (name, ver) in &all_deps {
                 let bare = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
                 let hash = simple_integrity_hash(name, bare);
@@ -401,7 +411,8 @@ pub fn generate_lockfile_v2(vfs: &Vfs, pm_name: &str) -> Result<String> {
                 "lockfileVersion": 3,
                 "requires": true,
                 "packages": packages,
-            })).unwrap_or_default()
+            }))
+            .unwrap_or_default()
         }
     };
 
@@ -1008,7 +1019,9 @@ fn pm_init(
     if yes {
         Ok(ok_out("Wrote to /package.json"))
     } else {
-        Ok(ok_out(serde_json::to_string_pretty(&pkg).unwrap_or_default()))
+        Ok(ok_out(
+            serde_json::to_string_pretty(&pkg).unwrap_or_default(),
+        ))
     }
 }
 
@@ -1312,14 +1325,19 @@ mod tests {
             "name": "monorepo",
             "workspaces": ["packages/*"],
         });
-        vfs.write("/package.json", root_pkg.to_string().into_bytes()).unwrap();
+        vfs.write("/package.json", root_pkg.to_string().into_bytes())
+            .unwrap();
 
         let child_pkg = serde_json::json!({
             "name": "@mono/utils",
             "version": "1.0.0",
             "dependencies": { "lodash": "^4.0.0" },
         });
-        vfs.write("/packages/utils/package.json", child_pkg.to_string().into_bytes()).unwrap();
+        vfs.write(
+            "/packages/utils/package.json",
+            child_pkg.to_string().into_bytes(),
+        )
+        .unwrap();
 
         let workspaces = detect_workspaces(&vfs);
         assert_eq!(workspaces.len(), 1);

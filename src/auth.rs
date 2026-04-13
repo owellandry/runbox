@@ -8,7 +8,6 @@
 /// - Borrado seguro de datos al cerrar sesión
 /// - No-tracking enforcement
 /// - GDPR compliance (exportación y borrado de datos)
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -57,7 +56,12 @@ pub enum AuthScope {
 
 impl ApiKey {
     /// Crea un nuevo API key. Retorna (ApiKey, raw_key) donde raw_key es el key en texto plano.
-    pub fn create(name: &str, scopes: Vec<AuthScope>, duration_ms: u64, now_ms: u64) -> (Self, String) {
+    pub fn create(
+        name: &str,
+        scopes: Vec<AuthScope>,
+        duration_ms: u64,
+        now_ms: u64,
+    ) -> (Self, String) {
         let raw_key = generate_api_key();
         let key_hash = hash_key(&raw_key);
         let prefix = raw_key[..8.min(raw_key.len())].to_string();
@@ -67,7 +71,11 @@ impl ApiKey {
             prefix,
             name: name.to_string(),
             created_at: now_ms,
-            expires_at: if duration_ms > 0 { now_ms + duration_ms } else { 0 },
+            expires_at: if duration_ms > 0 {
+                now_ms + duration_ms
+            } else {
+                0
+            },
             scopes,
             active: true,
             last_used: 0,
@@ -80,8 +88,7 @@ impl ApiKey {
 
     /// Verifica si el key es válido.
     pub fn is_valid(&self, now_ms: u64) -> bool {
-        self.active
-            && (self.expires_at == 0 || now_ms <= self.expires_at)
+        self.active && (self.expires_at == 0 || now_ms <= self.expires_at)
     }
 
     /// Verifica si el key tiene un scope específico.

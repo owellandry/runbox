@@ -602,7 +602,9 @@ impl McpServer {
             },
             McpPrompt {
                 name: "explain_project".into(),
-                description: Some("Explica la arquitectura y dependencias de todo el proyecto.".into()),
+                description: Some(
+                    "Explica la arquitectura y dependencias de todo el proyecto.".into(),
+                ),
                 arguments: vec![],
             },
             McpPrompt {
@@ -667,7 +669,10 @@ impl McpServer {
                 })]
             }
             "explain_project" => {
-                let tree_str = self.tool_list_dir(&json!({"path": "/"})).content.get(0)
+                let tree_str = self
+                    .tool_list_dir(&json!({"path": "/"}))
+                    .content
+                    .get(0)
                     .map(|c| {
                         if let crate::mcp::protocol::McpContent::Text { text } = c {
                             text.clone()
@@ -684,7 +689,11 @@ impl McpServer {
             "refactor_code" => {
                 let path = args["path"].as_str().unwrap_or("/");
                 let cmds = args["instructions"].as_str().unwrap_or("");
-                let content = self.vfs.read(path).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or("".into());
+                let content = self
+                    .vfs
+                    .read(path)
+                    .map(|b| String::from_utf8_lossy(b).into_owned())
+                    .unwrap_or("".into());
                 vec![json!({
                     "role": "user",
                     "content": format!("Archio: {path}\n\nInstrucciones de refactor:\n{cmds}\n\nCódigo original:\n```\n{content}\n```\n\nAplica este refactor y devuélveme el resultado.")

@@ -191,10 +191,7 @@ impl CorsConfig {
             "Access-Control-Allow-Headers".into(),
             self.allowed_headers.join(", "),
         );
-        h.insert(
-            "Access-Control-Max-Age".into(),
-            self.max_age.to_string(),
-        );
+        h.insert("Access-Control-Max-Age".into(), self.max_age.to_string());
 
         if self.allow_credentials {
             h.insert("Access-Control-Allow-Credentials".into(), "true".into());
@@ -275,10 +272,7 @@ impl PreviewMetadata {
         let mut tags = String::new();
 
         // Basic SEO
-        tags.push_str(&format!(
-            "<title>{}</title>\n",
-            html_escape(&self.title)
-        ));
+        tags.push_str(&format!("<title>{}</title>\n", html_escape(&self.title)));
         if !self.description.is_empty() {
             tags.push_str(&format!(
                 "<meta name=\"description\" content=\"{}\">\n",
@@ -408,7 +402,9 @@ impl PreviewMetadata {
         let mut svg = String::new();
         svg.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1200\" height=\"630\" viewBox=\"0 0 1200 630\">\n");
         svg.push_str("  <defs>\n");
-        svg.push_str("    <linearGradient id=\"bg\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n");
+        svg.push_str(
+            "    <linearGradient id=\"bg\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n",
+        );
         svg.push_str("      <stop offset=\"0%\" style=\"stop-color:#1a1b2e\"/>\n");
         svg.push_str("      <stop offset=\"100%\" style=\"stop-color:#16213e\"/>\n");
         svg.push_str("    </linearGradient>\n");
@@ -437,33 +433,62 @@ impl PreviewMetadata {
         match platform {
             SocialPlatform::Twitter => {
                 let mut tags = String::new();
-                tags.push_str(&format!("<meta name=\"twitter:card\" content=\"{}\">\n", html_escape(&self.twitter_card)));
-                tags.push_str(&format!("<meta name=\"twitter:title\" content=\"{}\">\n", html_escape(&self.title)));
+                tags.push_str(&format!(
+                    "<meta name=\"twitter:card\" content=\"{}\">\n",
+                    html_escape(&self.twitter_card)
+                ));
+                tags.push_str(&format!(
+                    "<meta name=\"twitter:title\" content=\"{}\">\n",
+                    html_escape(&self.title)
+                ));
                 if !self.description.is_empty() {
-                    tags.push_str(&format!("<meta name=\"twitter:description\" content=\"{}\">\n", html_escape(&self.description)));
+                    tags.push_str(&format!(
+                        "<meta name=\"twitter:description\" content=\"{}\">\n",
+                        html_escape(&self.description)
+                    ));
                 }
                 if !self.image.is_empty() {
-                    tags.push_str(&format!("<meta name=\"twitter:image\" content=\"{}\">\n", html_escape(&self.image)));
+                    tags.push_str(&format!(
+                        "<meta name=\"twitter:image\" content=\"{}\">\n",
+                        html_escape(&self.image)
+                    ));
                 }
                 tags
             }
             SocialPlatform::LinkedIn => {
                 let mut tags = String::new();
-                tags.push_str(&format!("<meta property=\"og:title\" content=\"{}\">\n", html_escape(&self.title)));
-                tags.push_str(&format!("<meta property=\"og:type\" content=\"website\">\n"));
-                tags.push_str(&format!("<meta property=\"og:url\" content=\"{}\">\n", html_escape(canonical_url)));
+                tags.push_str(&format!(
+                    "<meta property=\"og:title\" content=\"{}\">\n",
+                    html_escape(&self.title)
+                ));
+                tags.push_str(&format!(
+                    "<meta property=\"og:type\" content=\"website\">\n"
+                ));
+                tags.push_str(&format!(
+                    "<meta property=\"og:url\" content=\"{}\">\n",
+                    html_escape(canonical_url)
+                ));
                 if !self.description.is_empty() {
-                    tags.push_str(&format!("<meta property=\"og:description\" content=\"{}\">\n", html_escape(&self.description)));
+                    tags.push_str(&format!(
+                        "<meta property=\"og:description\" content=\"{}\">\n",
+                        html_escape(&self.description)
+                    ));
                 }
                 if !self.image.is_empty() {
-                    tags.push_str(&format!("<meta property=\"og:image\" content=\"{}\">\n", html_escape(&self.image)));
+                    tags.push_str(&format!(
+                        "<meta property=\"og:image\" content=\"{}\">\n",
+                        html_escape(&self.image)
+                    ));
                 }
                 tags
             }
             SocialPlatform::Discord => {
                 // Discord uses OG tags + theme-color for embed color
                 let mut tags = self.to_meta_tags(canonical_url);
-                tags.push_str(&format!("<meta name=\"theme-color\" content=\"{}\">\n", html_escape(&self.theme_color)));
+                tags.push_str(&format!(
+                    "<meta name=\"theme-color\" content=\"{}\">\n",
+                    html_escape(&self.theme_color)
+                ));
                 tags
             }
             SocialPlatform::Slack => {
@@ -772,7 +797,11 @@ pub fn handle_preview_request(
 
     // Check allowed paths (if configured)
     if !session.config.allowed_paths.is_empty()
-        && !session.config.allowed_paths.iter().any(|p| path.starts_with(p))
+        && !session
+            .config
+            .allowed_paths
+            .iter()
+            .any(|p| path.starts_with(p))
     {
         return crate::network::SwResponse::error(&req.id, "path not allowed");
     }
@@ -1212,10 +1241,7 @@ mod tests {
     fn cors_headers_wildcard() {
         let cors = CorsConfig::default();
         let headers = cors.headers_for(Some("https://example.com"));
-        assert_eq!(
-            headers.get("Access-Control-Allow-Origin").unwrap(),
-            "*"
-        );
+        assert_eq!(headers.get("Access-Control-Allow-Origin").unwrap(), "*");
     }
 
     #[test]
@@ -1337,7 +1363,10 @@ mod tests {
         assert_eq!(mime_for_path_extended("/img.webp"), "image/webp");
         assert_eq!(mime_for_path_extended("/img.avif"), "image/avif");
         assert_eq!(mime_for_path_extended("/app.wasm"), "application/wasm");
-        assert_eq!(mime_for_path_extended("/manifest.webmanifest"), "application/manifest+json");
+        assert_eq!(
+            mime_for_path_extended("/manifest.webmanifest"),
+            "application/manifest+json"
+        );
     }
 
     #[test]
@@ -1363,7 +1392,8 @@ mod tests {
     #[test]
     fn preview_request_serves_file() {
         let mut vfs = Vfs::new();
-        vfs.write("/index.html", b"<h1>Hello</h1>".to_vec()).unwrap();
+        vfs.write("/index.html", b"<h1>Hello</h1>".to_vec())
+            .unwrap();
 
         let config = PreviewConfig::default();
         let mut session = PreviewSession::new(config);

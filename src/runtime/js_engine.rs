@@ -12,7 +12,6 @@
 /// - setTimeout/setInterval/clearTimeout/clearInterval
 /// - Web APIs: URL, URLSearchParams, TextEncoder, TextDecoder, crypto
 /// - Node.js built-ins: path, fs (VFS-mapped), process, Buffer
-
 use std::collections::HashMap;
 
 // ── Resultado de ejecución ────────────────────────────────────────────────────
@@ -264,7 +263,8 @@ impl PolyfillGenerator {
 
     /// Get all polyfills combined.
     pub fn all() -> String {
-        format!("{}{}{}{}{}",
+        format!(
+            "{}{}{}{}{}",
             Self::async_await(),
             Self::fetch_polyfill(),
             Self::timers(),
@@ -529,7 +529,10 @@ fn peek_keyword(
     let mut word = String::new();
     word.push(first);
     // Peek ahead without consuming — collect chars that would form the keyword
-    let remaining: String = _iter.clone().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    let remaining: String = _iter
+        .clone()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
     word.push_str(&remaining);
     word
 }

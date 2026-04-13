@@ -8,7 +8,6 @@
 /// - Sanitización de HTML
 /// - Rate limiting por operación
 /// - Audit log para operaciones sensibles
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -38,9 +37,9 @@ impl Default for ResourceLimits {
         Self {
             max_files: 10_000,
             max_file_size: 10 * 1024 * 1024,   // 10 MB
-            max_total_size: 500 * 1024 * 1024,  // 500 MB
+            max_total_size: 500 * 1024 * 1024, // 500 MB
             max_processes: 64,
-            exec_timeout_ms: 30_000,            // 30 seconds
+            exec_timeout_ms: 30_000, // 30 seconds
             max_console_entries: 5_000,
             max_dir_depth: 50,
         }
@@ -124,9 +123,10 @@ impl NetworkPolicy {
             return self.allow_npm_registry;
         }
 
-        let matches = self.domains.iter().any(|pattern| {
-            domain_matches(domain, pattern)
-        });
+        let matches = self
+            .domains
+            .iter()
+            .any(|pattern| domain_matches(domain, pattern));
 
         match self.mode {
             NetworkFilterMode::Whitelist => matches,
@@ -207,8 +207,8 @@ pub struct CspConfig {
 impl Default for CspConfig {
     fn default() -> Self {
         Self {
-            allow_inline_scripts: true,     // Sandbox needs this for live-reload
-            allow_eval: true,               // JS engine uses eval
+            allow_inline_scripts: true, // Sandbox needs this for live-reload
+            allow_eval: true,           // JS engine uses eval
             script_sources: vec!["'self'".into()],
             style_sources: vec!["'self'".into(), "'unsafe-inline'".into()],
             img_sources: vec!["'self'".into(), "data:".into(), "blob:".into()],
@@ -266,20 +266,43 @@ impl CspConfig {
 
 /// Tags HTML peligrosos que deben ser eliminados.
 const DANGEROUS_TAGS: &[&str] = &[
-    "script", "iframe", "object", "embed", "form", "input",
-    "textarea", "button", "select", "link", "meta", "base",
-    "applet", "frame", "frameset",
+    "script", "iframe", "object", "embed", "form", "input", "textarea", "button", "select", "link",
+    "meta", "base", "applet", "frame", "frameset",
 ];
 
 /// Atributos HTML peligrosos que deben ser eliminados.
 const DANGEROUS_ATTRS: &[&str] = &[
-    "onclick", "onload", "onerror", "onmouseover", "onfocus", "onblur",
-    "onsubmit", "onchange", "onkeydown", "onkeyup", "onkeypress",
-    "onmousedown", "onmouseup", "onmousemove", "onmouseout",
-    "ondblclick", "oncontextmenu", "ondrag", "ondragend", "ondragenter",
-    "ondragleave", "ondragover", "ondragstart", "ondrop",
-    "onscroll", "onresize", "oninput", "oninvalid",
-    "formaction", "xlink:href", "data-bind",
+    "onclick",
+    "onload",
+    "onerror",
+    "onmouseover",
+    "onfocus",
+    "onblur",
+    "onsubmit",
+    "onchange",
+    "onkeydown",
+    "onkeyup",
+    "onkeypress",
+    "onmousedown",
+    "onmouseup",
+    "onmousemove",
+    "onmouseout",
+    "ondblclick",
+    "oncontextmenu",
+    "ondrag",
+    "ondragend",
+    "ondragenter",
+    "ondragleave",
+    "ondragover",
+    "ondragstart",
+    "ondrop",
+    "onscroll",
+    "onresize",
+    "oninput",
+    "oninvalid",
+    "formaction",
+    "xlink:href",
+    "data-bind",
 ];
 
 /// Sanitiza HTML eliminando tags y atributos peligrosos.
@@ -296,7 +319,9 @@ pub fn sanitize_html(html: &str) -> String {
                 // Check if there's a closing tag
                 let close_tag = format!("</{tag}>");
                 let after_open = start + end + 1;
-                if let Some(close_pos) = find_tag_case_insensitive(&result[after_open..], &close_tag) {
+                if let Some(close_pos) =
+                    find_tag_case_insensitive(&result[after_open..], &close_tag)
+                {
                     // Remove from open tag to end of close tag
                     let total_end = after_open + close_pos + close_tag.len();
                     result = format!("{}{}", &result[..start], &result[total_end..]);
@@ -331,7 +356,9 @@ pub fn sanitize_html(html: &str) -> String {
                     result[after_eq..].find(q).map(|p| after_eq + p + 1)
                 } else {
                     // Unquoted: ends at space or >
-                    result[after_eq..].find(|c: char| c == ' ' || c == '>').map(|p| after_eq + p)
+                    result[after_eq..]
+                        .find(|c: char| c == ' ' || c == '>')
+                        .map(|p| after_eq + p)
                 };
                 match end {
                     Some(e) => {
@@ -380,11 +407,7 @@ fn remove_js_urls(html: &str, attr: &str) -> String {
             let quote = result.as_bytes()[start + attr.len() + 1] as char;
             if let Some(end) = result[after..].find(quote) {
                 let total_end = after + end + 1;
-                result = format!(
-                    "{}{attr}=\"#\"{}",
-                    &result[..start],
-                    &result[total_end..]
-                );
+                result = format!("{}{attr}=\"#\"{}", &result[..start], &result[total_end..]);
             } else {
                 break;
             }
@@ -416,11 +439,41 @@ impl RateLimiter {
     pub fn new() -> Self {
         let mut limits = HashMap::new();
         // Límites por defecto
-        limits.insert("exec".into(), RateLimit { max_requests: 100, window_ms: 60_000 });
-        limits.insert("write".into(), RateLimit { max_requests: 500, window_ms: 60_000 });
-        limits.insert("read".into(), RateLimit { max_requests: 1000, window_ms: 60_000 });
-        limits.insert("network".into(), RateLimit { max_requests: 200, window_ms: 60_000 });
-        limits.insert("preview".into(), RateLimit { max_requests: 50, window_ms: 60_000 });
+        limits.insert(
+            "exec".into(),
+            RateLimit {
+                max_requests: 100,
+                window_ms: 60_000,
+            },
+        );
+        limits.insert(
+            "write".into(),
+            RateLimit {
+                max_requests: 500,
+                window_ms: 60_000,
+            },
+        );
+        limits.insert(
+            "read".into(),
+            RateLimit {
+                max_requests: 1000,
+                window_ms: 60_000,
+            },
+        );
+        limits.insert(
+            "network".into(),
+            RateLimit {
+                max_requests: 200,
+                window_ms: 60_000,
+            },
+        );
+        limits.insert(
+            "preview".into(),
+            RateLimit {
+                max_requests: 50,
+                window_ms: 60_000,
+            },
+        );
 
         Self {
             limits,
@@ -443,8 +496,12 @@ impl RateLimiter {
 
         if window.len() >= limit.max_requests {
             return LimitCheck::denied(
-                format!("rate limit exceeded for '{operation}': {}/{} per {}ms",
-                    window.len(), limit.max_requests, limit.window_ms),
+                format!(
+                    "rate limit exceeded for '{operation}': {}/{} per {}ms",
+                    window.len(),
+                    limit.max_requests,
+                    limit.window_ms
+                ),
                 window.len(),
                 limit.max_requests,
             );
@@ -456,7 +513,13 @@ impl RateLimiter {
 
     /// Configura el límite para una operación.
     pub fn set_limit(&mut self, operation: impl Into<String>, max_requests: usize, window_ms: u64) {
-        self.limits.insert(operation.into(), RateLimit { max_requests, window_ms });
+        self.limits.insert(
+            operation.into(),
+            RateLimit {
+                max_requests,
+                window_ms,
+            },
+        );
     }
 
     /// Limpia todas las ventanas de rate limiting.
@@ -548,12 +611,18 @@ impl AuditLog {
 
     /// Retorna entradas filtradas por operación.
     pub fn by_operation(&self, operation: &str) -> Vec<&AuditEntry> {
-        self.entries.iter().filter(|e| e.operation == operation).collect()
+        self.entries
+            .iter()
+            .filter(|e| e.operation == operation)
+            .collect()
     }
 
     /// Retorna entradas filtradas por outcome.
     pub fn by_outcome(&self, outcome: &AuditOutcome) -> Vec<&AuditEntry> {
-        self.entries.iter().filter(|e| &e.outcome == outcome).collect()
+        self.entries
+            .iter()
+            .filter(|e| &e.outcome == outcome)
+            .collect()
     }
 
     /// Limpia el log.
@@ -615,15 +684,28 @@ impl SecurityManager {
         // Rate limit
         let rate = self.rate_limiter.check("write", now_ms);
         if !rate.allowed {
-            self.audit.log(now_ms, "write", format!("denied: {path} (rate limit)"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "write",
+                format!("denied: {path} (rate limit)"),
+                AuditOutcome::Denied,
+            );
             return rate;
         }
 
         // File size limit
         if size > self.limits.max_file_size {
-            self.audit.log(now_ms, "write", format!("denied: {path} (file too large: {size})"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "write",
+                format!("denied: {path} (file too large: {size})"),
+                AuditOutcome::Denied,
+            );
             return LimitCheck::denied(
-                format!("file size {size} exceeds limit {}", self.limits.max_file_size),
+                format!(
+                    "file size {size} exceeds limit {}",
+                    self.limits.max_file_size
+                ),
                 size,
                 self.limits.max_file_size,
             );
@@ -632,9 +714,17 @@ impl SecurityManager {
         // Total VFS size limit
         let new_total = self.total_size + size;
         if new_total > self.limits.max_total_size {
-            self.audit.log(now_ms, "write", format!("denied: {path} (VFS full: {new_total})"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "write",
+                format!("denied: {path} (VFS full: {new_total})"),
+                AuditOutcome::Denied,
+            );
             return LimitCheck::denied(
-                format!("total VFS size {new_total} would exceed limit {}", self.limits.max_total_size),
+                format!(
+                    "total VFS size {new_total} would exceed limit {}",
+                    self.limits.max_total_size
+                ),
                 new_total,
                 self.limits.max_total_size,
             );
@@ -642,9 +732,17 @@ impl SecurityManager {
 
         // File count limit
         if self.file_count >= self.limits.max_files {
-            self.audit.log(now_ms, "write", format!("denied: {path} (too many files)"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "write",
+                format!("denied: {path} (too many files)"),
+                AuditOutcome::Denied,
+            );
             return LimitCheck::denied(
-                format!("file count {} exceeds limit {}", self.file_count, self.limits.max_files),
+                format!(
+                    "file count {} exceeds limit {}",
+                    self.file_count, self.limits.max_files
+                ),
                 self.file_count,
                 self.limits.max_files,
             );
@@ -653,15 +751,28 @@ impl SecurityManager {
         // Directory depth
         let depth = path.matches('/').count();
         if depth > self.limits.max_dir_depth {
-            self.audit.log(now_ms, "write", format!("denied: {path} (too deep)"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "write",
+                format!("denied: {path} (too deep)"),
+                AuditOutcome::Denied,
+            );
             return LimitCheck::denied(
-                format!("directory depth {depth} exceeds limit {}", self.limits.max_dir_depth),
+                format!(
+                    "directory depth {depth} exceeds limit {}",
+                    self.limits.max_dir_depth
+                ),
                 depth,
                 self.limits.max_dir_depth,
             );
         }
 
-        self.audit.log(now_ms, "write", format!("allowed: {path} ({size} bytes)"), AuditOutcome::Success);
+        self.audit.log(
+            now_ms,
+            "write",
+            format!("allowed: {path} ({size} bytes)"),
+            AuditOutcome::Success,
+        );
         LimitCheck::ok()
     }
 
@@ -669,20 +780,38 @@ impl SecurityManager {
     pub fn check_exec(&mut self, command: &str, running_count: usize, now_ms: u64) -> LimitCheck {
         let rate = self.rate_limiter.check("exec", now_ms);
         if !rate.allowed {
-            self.audit.log(now_ms, "exec", format!("denied: {command} (rate limit)"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "exec",
+                format!("denied: {command} (rate limit)"),
+                AuditOutcome::Denied,
+            );
             return rate;
         }
 
         if running_count >= self.limits.max_processes {
-            self.audit.log(now_ms, "exec", format!("denied: {command} (too many processes)"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "exec",
+                format!("denied: {command} (too many processes)"),
+                AuditOutcome::Denied,
+            );
             return LimitCheck::denied(
-                format!("process count {running_count} exceeds limit {}", self.limits.max_processes),
+                format!(
+                    "process count {running_count} exceeds limit {}",
+                    self.limits.max_processes
+                ),
                 running_count,
                 self.limits.max_processes,
             );
         }
 
-        self.audit.log(now_ms, "exec", format!("allowed: {command}"), AuditOutcome::Success);
+        self.audit.log(
+            now_ms,
+            "exec",
+            format!("allowed: {command}"),
+            AuditOutcome::Success,
+        );
         LimitCheck::ok()
     }
 
@@ -690,20 +819,31 @@ impl SecurityManager {
     pub fn check_network(&mut self, url: &str, now_ms: u64) -> LimitCheck {
         let rate = self.rate_limiter.check("network", now_ms);
         if !rate.allowed {
-            self.audit.log(now_ms, "network", format!("denied: {url} (rate limit)"), AuditOutcome::Denied);
+            self.audit.log(
+                now_ms,
+                "network",
+                format!("denied: {url} (rate limit)"),
+                AuditOutcome::Denied,
+            );
             return rate;
         }
 
         if !self.network_policy.is_url_allowed(url) {
-            self.audit.log(now_ms, "network", format!("denied: {url} (policy)"), AuditOutcome::Denied);
-            return LimitCheck::denied(
-                format!("URL '{url}' blocked by network policy"),
-                0,
-                0,
+            self.audit.log(
+                now_ms,
+                "network",
+                format!("denied: {url} (policy)"),
+                AuditOutcome::Denied,
             );
+            return LimitCheck::denied(format!("URL '{url}' blocked by network policy"), 0, 0);
         }
 
-        self.audit.log(now_ms, "network", format!("allowed: {url}"), AuditOutcome::Success);
+        self.audit.log(
+            now_ms,
+            "network",
+            format!("allowed: {url}"),
+            AuditOutcome::Success,
+        );
         LimitCheck::ok()
     }
 
@@ -757,7 +897,8 @@ impl SecurityManager {
             "limits": self.limits,
             "network_policy": self.network_policy,
             "csp": self.csp,
-        }).to_string()
+        })
+        .to_string()
     }
 }
 
@@ -923,9 +1064,18 @@ mod tests {
 
     #[test]
     fn domain_extraction() {
-        assert_eq!(extract_domain("https://example.com/path"), Some("example.com".into()));
-        assert_eq!(extract_domain("http://localhost:3000/api"), Some("localhost".into()));
-        assert_eq!(extract_domain("ftp://files.server.org"), Some("files.server.org".into()));
+        assert_eq!(
+            extract_domain("https://example.com/path"),
+            Some("example.com".into())
+        );
+        assert_eq!(
+            extract_domain("http://localhost:3000/api"),
+            Some("localhost".into())
+        );
+        assert_eq!(
+            extract_domain("ftp://files.server.org"),
+            Some("files.server.org".into())
+        );
     }
 
     #[test]

@@ -226,7 +226,7 @@ mod tests {
 
         let mut vfs = Vfs::new();
         vfs.write("/src/index.js", b"const a=1;".to_vec()).unwrap();
-        
+
         let res = manager.trigger_on_file_change(&mut vfs, "/src/index.js");
         assert!(res.is_ok());
     }

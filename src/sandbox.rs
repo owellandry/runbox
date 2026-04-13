@@ -22,10 +22,7 @@ pub enum SandboxEvent {
     /// Error fatal del sandbox.
     FatalError { message: String },
     /// Preview session started.
-    PreviewStarted {
-        url: String,
-        session_id: String,
-    },
+    PreviewStarted { url: String, session_id: String },
     /// Preview session stopped.
     PreviewStopped { session_id: String },
     /// Preview share URL generated.
@@ -34,10 +31,7 @@ pub enum SandboxEvent {
         session_id: String,
     },
     /// Custom domain configured for preview.
-    PreviewDomainSet {
-        domain: String,
-        session_id: String,
-    },
+    PreviewDomainSet { domain: String, session_id: String },
 }
 
 /// Comandos que el browser puede enviar al sandbox (input del usuario).

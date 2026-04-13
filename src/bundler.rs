@@ -7,7 +7,6 @@
 /// - Soporte para CSS Modules con scoping automático
 /// - Tree shaking básico (eliminación de exports no usados)
 /// - Generación de source maps para debugging
-
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -494,7 +493,9 @@ impl CssModuleProcessor {
                         let start = i + 1;
                         let mut end = start;
                         while end < chars.len()
-                            && (chars[end].is_alphanumeric() || chars[end] == '_' || chars[end] == '-')
+                            && (chars[end].is_alphanumeric()
+                                || chars[end] == '_'
+                                || chars[end] == '-')
                         {
                             end += 1;
                         }
@@ -508,8 +509,8 @@ impl CssModuleProcessor {
                                 &file_hash[..6.min(file_hash.len())]
                             );
                             class_map.insert(original.clone(), scoped.clone());
-                            processed_line =
-                                processed_line.replace(&format!(".{original}"), &format!(".{scoped}"));
+                            processed_line = processed_line
+                                .replace(&format!(".{original}"), &format!(".{scoped}"));
                         }
                         i = end;
                     } else {
@@ -556,10 +557,7 @@ impl CssModuleResult {
             .iter()
             .map(|(k, v)| format!("  \"{k}\": \"{v}\""))
             .collect();
-        format!(
-            "export default {{\n{}\n}};",
-            entries.join(",\n")
-        )
+        format!("export default {{\n{}\n}};", entries.join(",\n"))
     }
 }
 
@@ -621,9 +619,7 @@ impl ModuleGraph {
         self.modules
             .iter()
             .filter(|(_, node)| {
-                !node.side_effects
-                    && node.used_exports.is_empty()
-                    && !node.exports.is_empty()
+                !node.side_effects && node.used_exports.is_empty() && !node.exports.is_empty()
             })
             .map(|(path, _)| path.clone())
             .collect()
@@ -711,7 +707,15 @@ impl Bundler {
 
         // Recolectar módulos recursivamente
         let mut visited = HashSet::new();
-        self.collect_modules(vfs, entry, &mut visited, &mut js_modules, &mut css_output, &mut errors, &mut warnings);
+        self.collect_modules(
+            vfs,
+            entry,
+            &mut visited,
+            &mut js_modules,
+            &mut css_output,
+            &mut errors,
+            &mut warnings,
+        );
 
         // Construir el bundle
         let mut bundle = String::new();
@@ -810,7 +814,9 @@ impl Bundler {
                         let deps = extract_deps(&code);
                         for dep in &deps {
                             let resolved = resolve_module_path(path, dep);
-                            self.collect_modules(vfs, &resolved, visited, js_modules, css_output, errors, warnings);
+                            self.collect_modules(
+                                vfs, &resolved, visited, js_modules, css_output, errors, warnings,
+                            );
                         }
                         js_modules.push((path.to_string(), code));
                     }
@@ -825,7 +831,9 @@ impl Bundler {
                 let deps = extract_deps(&code);
                 for dep in &deps {
                     let resolved = resolve_module_path(path, dep);
-                    self.collect_modules(vfs, &resolved, visited, js_modules, css_output, errors, warnings);
+                    self.collect_modules(
+                        vfs, &resolved, visited, js_modules, css_output, errors, warnings,
+                    );
                 }
                 js_modules.push((path.to_string(), code));
             }
@@ -834,7 +842,9 @@ impl Bundler {
                 let deps = extract_deps(&code);
                 for dep in &deps {
                     let resolved = resolve_module_path(path, dep);
-                    self.collect_modules(vfs, &resolved, visited, js_modules, css_output, errors, warnings);
+                    self.collect_modules(
+                        vfs, &resolved, visited, js_modules, css_output, errors, warnings,
+                    );
                 }
                 js_modules.push((path.to_string(), code));
             }
@@ -1046,14 +1056,23 @@ fn parse_exports(source: &str) -> Vec<String> {
         let trimmed = line.trim();
         if trimmed.starts_with("export default ") {
             exports.push("default".to_string());
-        } else if trimmed.starts_with("export const ") || trimmed.starts_with("export let ") || trimmed.starts_with("export var ") {
+        } else if trimmed.starts_with("export const ")
+            || trimmed.starts_with("export let ")
+            || trimmed.starts_with("export var ")
+        {
             let after = trimmed.splitn(3, ' ').nth(2).unwrap_or("");
-            if let Some(name) = after.split(|c: char| !c.is_alphanumeric() && c != '_').next() {
+            if let Some(name) = after
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()
+            {
                 exports.push(name.to_string());
             }
         } else if trimmed.starts_with("export function ") || trimmed.starts_with("export class ") {
             let after = trimmed.splitn(3, ' ').nth(2).unwrap_or("");
-            if let Some(name) = after.split(|c: char| !c.is_alphanumeric() && c != '_').next() {
+            if let Some(name) = after
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()
+            {
                 exports.push(name.to_string());
             }
         }
@@ -1138,9 +1157,18 @@ const x = 1;"#;
 
     #[test]
     fn module_resolution() {
-        assert_eq!(resolve_module_path("/src/app.tsx", "./utils"), "/src/utils.tsx");
-        assert_eq!(resolve_module_path("/src/components/btn.tsx", "../utils"), "/src/utils.tsx");
-        assert_eq!(resolve_module_path("/src/app.tsx", "/lib/foo.js"), "/lib/foo.js");
+        assert_eq!(
+            resolve_module_path("/src/app.tsx", "./utils"),
+            "/src/utils.tsx"
+        );
+        assert_eq!(
+            resolve_module_path("/src/components/btn.tsx", "../utils"),
+            "/src/utils.tsx"
+        );
+        assert_eq!(
+            resolve_module_path("/src/app.tsx", "/lib/foo.js"),
+            "/lib/foo.js"
+        );
     }
 
     #[test]
@@ -1156,7 +1184,8 @@ const x = 1;"#;
 
     #[test]
     fn dependency_extraction() {
-        let code = "const a = require('./a');\nconst b = require('./b');\nconst c = require('react');";
+        let code =
+            "const a = require('./a');\nconst b = require('./b');\nconst c = require('react');";
         let deps = extract_deps(code);
         assert_eq!(deps.len(), 2); // Only relative imports
         assert!(deps.contains(&"./a".to_string()));
@@ -1167,7 +1196,10 @@ const x = 1;"#;
     fn tree_shake_detection() {
         let mut graph = ModuleGraph::new();
         graph.add_module("/a.js", "export const foo = 1;");
-        graph.add_module("/b.js", "export const bar = 2;\nconsole.log('side effect');");
+        graph.add_module(
+            "/b.js",
+            "export const bar = 2;\nconsole.log('side effect');",
+        );
 
         let shaken = graph.tree_shake();
         // /a.js has no side effects and no used exports → can be shaken

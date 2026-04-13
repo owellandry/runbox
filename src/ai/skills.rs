@@ -308,7 +308,9 @@ fn skill_patch_file(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Result<Valu
     let content = String::from_utf8_lossy(&bytes).to_string();
 
     if !content.contains(target) {
-        return Err(RunboxError::Runtime("target_content not found in file".into()));
+        return Err(RunboxError::Runtime(
+            "target_content not found in file".into(),
+        ));
     }
 
     let patched = content.replace(target, replacement);
@@ -337,16 +339,23 @@ fn skill_scaffold_project(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Resul
         _ => r#"{"name":"demo","version":"1.0.0"}"#,
     };
 
-    let p = if base == "/" { "/package.json".into() } else { format!("{}/package.json", base) };
+    let p = if base == "/" {
+        "/package.json".into()
+    } else {
+        format!("{}/package.json", base)
+    };
     vfs.write(&p, pkg_json.into())?;
-    
+
     Ok(json!({ "template": template, "scaffolded": true, "path": base }))
 }
 
 fn skill_debug_error(call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Value> {
     let error_msg = str_arg(&call.arguments, "error_message")?;
     let file = call.arguments["related_file"].as_str().unwrap_or("/");
-    let ctx = vfs.read(file).map(|b| String::from_utf8_lossy(&b).to_string()).unwrap_or_default();
+    let ctx = vfs
+        .read(file)
+        .map(|b| String::from_utf8_lossy(&b).to_string())
+        .unwrap_or_default();
 
     Ok(json!({
         "debug_context": format!("Analizando error: {}\nArchivo ({}) contiene:\n{}", error_msg, file, ctx),
@@ -365,12 +374,16 @@ fn skill_explain_project(_call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Va
 fn skill_refactor_code(call: &ToolCall, _vfs: &mut Vfs) -> crate::error::Result<Value> {
     let path = str_arg(&call.arguments, "path")?;
     let req = str_arg(&call.arguments, "instructions")?;
-    Ok(json!({ "status": "acknowledged", "path": path, "request": req, "hint": "Genera los patches con patch_file o write_file siguiendo el código." }))
+    Ok(
+        json!({ "status": "acknowledged", "path": path, "request": req, "hint": "Genera los patches con patch_file o write_file siguiendo el código." }),
+    )
 }
 
 fn skill_generate_tests(call: &ToolCall, _vfs: &Vfs) -> crate::error::Result<Value> {
     let path = str_arg(&call.arguments, "path")?;
-    Ok(json!({ "status": "acknowledged", "path": path, "message": "Procede a usar write_file para el archivo .test.ts" }))
+    Ok(
+        json!({ "status": "acknowledged", "path": path, "message": "Procede a usar write_file para el archivo .test.ts" }),
+    )
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -400,9 +413,8 @@ fn skill_preview_start(
     call: &ToolCall,
     preview: Option<&mut PreviewManager>,
 ) -> crate::error::Result<Value> {
-    let preview = preview.ok_or_else(|| {
-        RunboxError::Runtime("preview not available in this context".into())
-    })?;
+    let preview = preview
+        .ok_or_else(|| RunboxError::Runtime("preview not available in this context".into()))?;
 
     let mut config = crate::preview::PreviewConfig::default();
 
@@ -442,12 +454,9 @@ fn skill_preview_start(
     }))
 }
 
-fn skill_preview_stop(
-    preview: Option<&mut PreviewManager>,
-) -> crate::error::Result<Value> {
-    let preview = preview.ok_or_else(|| {
-        RunboxError::Runtime("preview not available in this context".into())
-    })?;
+fn skill_preview_stop(preview: Option<&mut PreviewManager>) -> crate::error::Result<Value> {
+    let preview = preview
+        .ok_or_else(|| RunboxError::Runtime("preview not available in this context".into()))?;
 
     preview.stop()?;
     Ok(json!({ "stopped": true }))
@@ -457,13 +466,12 @@ fn skill_preview_configure(
     call: &ToolCall,
     preview: Option<&mut PreviewManager>,
 ) -> crate::error::Result<Value> {
-    let preview = preview.ok_or_else(|| {
-        RunboxError::Runtime("preview not available in this context".into())
-    })?;
+    let preview = preview
+        .ok_or_else(|| RunboxError::Runtime("preview not available in this context".into()))?;
 
-    let session = preview.current_mut().ok_or_else(|| {
-        RunboxError::Runtime("no active preview session".into())
-    })?;
+    let session = preview
+        .current_mut()
+        .ok_or_else(|| RunboxError::Runtime("no active preview session".into()))?;
 
     // Apply configuration updates
     if let Some(domain) = call.arguments["domain"].as_str() {
@@ -501,17 +509,14 @@ fn skill_preview_configure(
     }))
 }
 
-fn skill_preview_share(
-    preview: Option<&mut PreviewManager>,
-) -> crate::error::Result<Value> {
-    let preview = preview.ok_or_else(|| {
-        RunboxError::Runtime("preview not available in this context".into())
-    })?;
+fn skill_preview_share(preview: Option<&mut PreviewManager>) -> crate::error::Result<Value> {
+    let preview = preview
+        .ok_or_else(|| RunboxError::Runtime("preview not available in this context".into()))?;
 
     let share_url = preview.share()?;
-    let session = preview.current().ok_or_else(|| {
-        RunboxError::Runtime("no active preview session".into())
-    })?;
+    let session = preview
+        .current()
+        .ok_or_else(|| RunboxError::Runtime("no active preview session".into()))?;
 
     Ok(json!({
         "share_url": share_url,

@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use crate::vfs::Vfs;
 use crate::error::Result;
+use crate::vfs::Vfs;
+use serde::{Deserialize, Serialize};
 
 // ── 6.1 Language Server y Soporte de Editor (Monaco) ──────────────────────────
 
@@ -54,7 +54,12 @@ pub struct LspServer;
 
 impl LspServer {
     /// Obtiene auto-completado sintético para un punto en el documento
-    pub fn get_completions(_vfs: &Vfs, path: &str, _line: u32, _col: u32) -> Result<Vec<CompletionItem>> {
+    pub fn get_completions(
+        _vfs: &Vfs,
+        path: &str,
+        _line: u32,
+        _col: u32,
+    ) -> Result<Vec<CompletionItem>> {
         let mut completions = Vec::new();
         if path.ends_with(".ts") || path.ends_with(".tsx") {
             // Simulated TS completions

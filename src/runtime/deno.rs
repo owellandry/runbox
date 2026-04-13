@@ -6,7 +6,6 @@
 /// - Ejecución de tasks de deno.json
 /// - Detección de proyectos Deno
 /// - Permisos de Deno (--allow-read, --allow-net, etc.)
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -155,7 +154,9 @@ impl DenoPermissions {
         }
         match &self.allow_net {
             PermissionGrant::All => true,
-            PermissionGrant::Specific(hosts) => hosts.iter().any(|h| h == host || host.ends_with(h)),
+            PermissionGrant::Specific(hosts) => {
+                hosts.iter().any(|h| h == host || host.ends_with(h))
+            }
             PermissionGrant::Denied => false,
         }
     }
@@ -331,7 +332,11 @@ pub struct DenoProjectInfo {
 impl DenoProjectInfo {
     /// Retorna la lista de tasks disponibles.
     pub fn available_tasks(&self) -> Vec<(&str, &str)> {
-        self.config.tasks.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
+        self.config
+            .tasks
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect()
     }
 
     /// Retorna info como JSON.
@@ -412,10 +417,7 @@ impl DenoRunner {
 
     /// Resuelve imports usando el import map del proyecto.
     fn resolve_imports(&self, source: &str) -> String {
-        let import_map = self
-            .project
-            .as_ref()
-            .map(|p| &p.import_map);
+        let import_map = self.project.as_ref().map(|p| &p.import_map);
 
         if import_map.is_none() {
             return source.to_string();
@@ -613,8 +615,12 @@ mod tests {
     #[test]
     fn import_map_resolve() {
         let mut imap = ImportMap::default();
-        imap.imports.insert("react".to_string(), "https://esm.sh/react@18".to_string());
-        imap.imports.insert("std/".to_string(), "https://deno.land/std@0.200.0/".to_string());
+        imap.imports
+            .insert("react".to_string(), "https://esm.sh/react@18".to_string());
+        imap.imports.insert(
+            "std/".to_string(),
+            "https://deno.land/std@0.200.0/".to_string(),
+        );
 
         assert_eq!(
             imap.resolve("react", None),
@@ -630,7 +636,8 @@ mod tests {
     #[test]
     fn import_map_scopes() {
         let mut imap = ImportMap::default();
-        imap.imports.insert("lodash".to_string(), "https://esm.sh/lodash@4".to_string());
+        imap.imports
+            .insert("lodash".to_string(), "https://esm.sh/lodash@4".to_string());
         let mut scope = HashMap::new();
         scope.insert("lodash".to_string(), "https://esm.sh/lodash@3".to_string());
         imap.scopes.insert("/legacy/".to_string(), scope);
@@ -664,7 +671,10 @@ mod tests {
     #[test]
     fn deno_permissions_check() {
         let perms = DenoPermissions {
-            allow_net: PermissionGrant::Specific(vec!["deno.land".to_string(), "esm.sh".to_string()]),
+            allow_net: PermissionGrant::Specific(vec![
+                "deno.land".to_string(),
+                "esm.sh".to_string(),
+            ]),
             ..Default::default()
         };
 
@@ -697,7 +707,8 @@ mod tests {
             br#"{"tasks":{"start":"deno run mod.ts"},"imports":{}}"#.to_vec(),
         )
         .unwrap();
-        vfs.write("/mod.ts", b"console.log('hello');".to_vec()).unwrap();
+        vfs.write("/mod.ts", b"console.log('hello');".to_vec())
+            .unwrap();
 
         let info = detect_deno_project(&vfs);
         assert!(info.is_some());

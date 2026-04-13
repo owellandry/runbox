@@ -48,10 +48,7 @@ impl DeployManager {
             }
             DeployProvider::Netlify => {
                 logs.push("Triggering Netlify webhook via build hook...".into());
-                Some(format!(
-                    "https://{}.netlify.app",
-                    self.config.project_name
-                ))
+                Some(format!("https://{}.netlify.app", self.config.project_name))
             }
             DeployProvider::GitHubPages => {
                 logs.push("Pushing to gh-pages branch...".into());
@@ -119,11 +116,7 @@ mod tests {
 
     #[test]
     fn github_sync_instantiation() {
-        let gh = GitHubSyncManager::new(
-            "runbox/live".into(),
-            "master".into(),
-            "GH_TOKEN".into(),
-        );
+        let gh = GitHubSyncManager::new("runbox/live".into(), "master".into(), "GH_TOKEN".into());
         assert!(gh.pull_vfs_changes().is_ok());
         assert!(gh.push_vfs_snapshot("test commit").is_ok());
     }

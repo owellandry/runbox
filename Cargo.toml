@@ -63,7 +63,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = "0.5"
 
 [[bench]]

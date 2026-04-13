@@ -5,7 +5,6 @@
 /// - Metadatos de cache de compilación
 /// - Instrumentación de performance/profiling
 /// - Tracking de uso de memoria
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -68,9 +67,7 @@ impl WasmModuleMetrics {
     /// Retorna el porcentaje de reducción.
     pub fn reduction_percent(&self) -> f64 {
         match self.optimized_size {
-            Some(opt) if self.raw_size > 0 => {
-                (1.0 - (opt as f64 / self.raw_size as f64)) * 100.0
-            }
+            Some(opt) if self.raw_size > 0 => (1.0 - (opt as f64 / self.raw_size as f64)) * 100.0,
             _ => 0.0,
         }
     }
@@ -122,7 +119,9 @@ impl CompilationCache {
     ) {
         // Evict oldest if at capacity
         if self.entries.len() >= self.max_entries && !self.entries.contains_key(module_name) {
-            let oldest = self.entries.iter()
+            let oldest = self
+                .entries
+                .iter()
                 .min_by_key(|(_, e)| e.compiled_at)
                 .map(|(k, _)| k.clone());
             if let Some(key) = oldest {
@@ -130,19 +129,23 @@ impl CompilationCache {
             }
         }
 
-        self.entries.insert(module_name.to_string(), CompilationCacheEntry {
-            source_hash,
-            compiled_at: timestamp,
-            compiled_size,
-            compile_time_ms,
-            target: target.to_string(),
-            in_idb: false,
-        });
+        self.entries.insert(
+            module_name.to_string(),
+            CompilationCacheEntry {
+                source_hash,
+                compiled_at: timestamp,
+                compiled_size,
+                compile_time_ms,
+                target: target.to_string(),
+                in_idb: false,
+            },
+        );
     }
 
     /// Verifica si un módulo tiene una compilación cacheada válida.
     pub fn is_cached(&self, module_name: &str, source_hash: &str) -> bool {
-        self.entries.get(module_name)
+        self.entries
+            .get(module_name)
             .map_or(false, |e| e.source_hash == source_hash)
     }
 
@@ -258,14 +261,17 @@ impl WasmProfiler {
         let id = self.next_id;
         self.next_id += 1;
 
-        self.active.insert(id, ProfileEvent {
+        self.active.insert(
             id,
-            kind,
-            name: name.into(),
-            start_ms,
-            duration_ms: 0,
-            metadata: HashMap::new(),
-        });
+            ProfileEvent {
+                id,
+                kind,
+                name: name.into(),
+                start_ms,
+                duration_ms: 0,
+                metadata: HashMap::new(),
+            },
+        );
 
         id
     }
@@ -347,14 +353,26 @@ impl WasmProfiler {
             summaries.entry(key).or_default().push(event.duration_ms);
         }
 
-        summaries.into_iter().map(|(kind, durations)| {
-            let count = durations.len() as u64;
-            let total: u64 = durations.iter().sum();
-            let avg = if count > 0 { total / count } else { 0 };
-            let max = durations.iter().copied().max().unwrap_or(0);
-            let min = durations.iter().copied().min().unwrap_or(0);
-            (kind, ProfileSummary { count, total_ms: total, avg_ms: avg, min_ms: min, max_ms: max })
-        }).collect()
+        summaries
+            .into_iter()
+            .map(|(kind, durations)| {
+                let count = durations.len() as u64;
+                let total: u64 = durations.iter().sum();
+                let avg = if count > 0 { total / count } else { 0 };
+                let max = durations.iter().copied().max().unwrap_or(0);
+                let min = durations.iter().copied().min().unwrap_or(0);
+                (
+                    kind,
+                    ProfileSummary {
+                        count,
+                        total_ms: total,
+                        avg_ms: avg,
+                        min_ms: min,
+                        max_ms: max,
+                    },
+                )
+            })
+            .collect()
     }
 
     /// Limpia todos los eventos.
@@ -493,7 +511,8 @@ impl WasmOptManager {
 
     /// Registra un módulo WASM.
     pub fn register_module(&mut self, name: &str, raw_size: usize) {
-        self.modules.insert(name.to_string(), WasmModuleMetrics::new(name, raw_size));
+        self.modules
+            .insert(name.to_string(), WasmModuleMetrics::new(name, raw_size));
     }
 
     /// Retorna métricas de un módulo.
@@ -504,9 +523,7 @@ impl WasmOptManager {
     /// Retorna un resumen de todos los módulos.
     pub fn modules_summary(&self) -> serde_json::Value {
         let total_raw: usize = self.modules.values().map(|m| m.raw_size).sum();
-        let total_opt: usize = self.modules.values()
-            .filter_map(|m| m.optimized_size)
-            .sum();
+        let total_opt: usize = self.modules.values().filter_map(|m| m.optimized_size).sum();
         let total_saved: usize = self.modules.values().map(|m| m.bytes_saved()).sum();
 
         serde_json::json!({
@@ -543,7 +560,8 @@ impl WasmOptManager {
                 "total_bytes": self.memory.total_bytes(),
                 "snapshots": self.memory.history().len(),
             },
-        }).to_string()
+        })
+        .to_string()
     }
 }
 

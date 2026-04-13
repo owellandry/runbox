@@ -6,7 +6,6 @@
 /// - Panel de sesiones activas con tracking de viewers
 /// - Revocación de tokens
 /// - Historial de accesos
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -29,7 +28,9 @@ impl SessionPermission {
     pub fn allows(&self, action: &SessionAction) -> bool {
         match action {
             SessionAction::ViewPreview => true, // Todos pueden ver
-            SessionAction::UseTerminal => matches!(self, SessionPermission::Interact | SessionPermission::Edit),
+            SessionAction::UseTerminal => {
+                matches!(self, SessionPermission::Interact | SessionPermission::Edit)
+            }
             SessionAction::EditFile => matches!(self, SessionPermission::Edit),
             SessionAction::ShareProject => matches!(self, SessionPermission::Edit),
         }
@@ -335,21 +336,36 @@ impl SessionManager {
         let token = match self.tokens.get_mut(token_str) {
             Some(t) => t,
             None => {
-                self.access_log
-                    .log(token_str, now_ms, client_hint, user_agent, AccessOutcome::NotFound);
+                self.access_log.log(
+                    token_str,
+                    now_ms,
+                    client_hint,
+                    user_agent,
+                    AccessOutcome::NotFound,
+                );
                 return Err(AccessOutcome::NotFound);
             }
         };
 
         if token.revoked {
-            self.access_log
-                .log(token_str, now_ms, client_hint, user_agent, AccessOutcome::Revoked);
+            self.access_log.log(
+                token_str,
+                now_ms,
+                client_hint,
+                user_agent,
+                AccessOutcome::Revoked,
+            );
             return Err(AccessOutcome::Revoked);
         }
 
         if token.expires_at > 0 && now_ms > token.expires_at {
-            self.access_log
-                .log(token_str, now_ms, client_hint, user_agent, AccessOutcome::Expired);
+            self.access_log.log(
+                token_str,
+                now_ms,
+                client_hint,
+                user_agent,
+                AccessOutcome::Expired,
+            );
             return Err(AccessOutcome::Expired);
         }
 
@@ -365,8 +381,13 @@ impl SessionManager {
         }
 
         token.record_use();
-        self.access_log
-            .log(token_str, now_ms, client_hint, user_agent, AccessOutcome::Granted);
+        self.access_log.log(
+            token_str,
+            now_ms,
+            client_hint,
+            user_agent,
+            AccessOutcome::Granted,
+        );
 
         // Re-borrow as immutable
         Ok(self.tokens.get(token_str).unwrap())
@@ -478,13 +499,12 @@ fn generate_token() -> String {
     let h1 = hasher.finish();
 
     let mut hasher2 = DefaultHasher::new();
-    (h1.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)).hash(&mut hasher2);
+    (h1.wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407))
+    .hash(&mut hasher2);
     let h2 = hasher2.finish();
 
-    format!("{:016x}{:016x}", h1, h2)
-        .chars()
-        .take(24)
-        .collect()
+    format!("{:016x}{:016x}", h1, h2).chars().take(24).collect()
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -614,9 +634,18 @@ mod tests {
     #[test]
     fn session_manager_revoke_session() {
         let mut mgr = SessionManager::new();
-        let t1 = mgr.create_token("s1", SessionPermission::View, 0, 1000).token.clone();
-        let t2 = mgr.create_token("s1", SessionPermission::Edit, 0, 2000).token.clone();
-        let t3 = mgr.create_token("s2", SessionPermission::View, 0, 3000).token.clone();
+        let t1 = mgr
+            .create_token("s1", SessionPermission::View, 0, 1000)
+            .token
+            .clone();
+        let t2 = mgr
+            .create_token("s1", SessionPermission::Edit, 0, 2000)
+            .token
+            .clone();
+        let t3 = mgr
+            .create_token("s2", SessionPermission::View, 0, 3000)
+            .token
+            .clone();
 
         mgr.revoke_session_tokens("s1");
 

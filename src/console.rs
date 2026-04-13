@@ -1,9 +1,9 @@
 use crate::process::Pid;
+#[cfg(target_arch = "wasm32")]
+use js_sys;
 use serde::{Deserialize, Serialize};
 /// Sistema de logs de consola — captura output estructurado de todos los procesos.
 use std::collections::VecDeque;
-#[cfg(target_arch = "wasm32")]
-use js_sys;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

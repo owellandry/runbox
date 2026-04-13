@@ -114,7 +114,14 @@ impl Framework {
 
     /// Retorna si el framework soporta HMR nativo.
     pub fn supports_hmr(&self) -> bool {
-        matches!(self, Framework::React | Framework::Vue | Framework::Svelte | Framework::Solid | Framework::Preact)
+        matches!(
+            self,
+            Framework::React
+                | Framework::Vue
+                | Framework::Svelte
+                | Framework::Solid
+                | Framework::Preact
+        )
     }
 
     /// Genera el script de HMR específico para el framework detectado.
@@ -461,7 +468,8 @@ impl CssMorphConfig {
         let transition_ms = self.transition_ms;
         let smooth = self.smooth_transition;
 
-        format!(r#"(function() {{
+        format!(
+            r#"(function() {{
     const paths = {paths_json};
     const smooth = {smooth};
     const transitionMs = {transition_ms};
@@ -484,7 +492,8 @@ impl CssMorphConfig {
             document.head.appendChild(newLink);
         }}
     }});
-}})();"#)
+}})();"#
+        )
     }
 }
 
@@ -521,8 +530,15 @@ impl CompilationError {
     /// Genera HTML del error overlay.
     pub fn to_overlay_html(&self) -> String {
         let file_info = match (&self.file, self.line, self.column) {
-            (Some(f), Some(l), Some(c)) => format!("<div class=\"rb-err-loc\">{}:{}:{}</div>", html_esc(f), l, c),
-            (Some(f), Some(l), None) => format!("<div class=\"rb-err-loc\">{}:{}</div>", html_esc(f), l),
+            (Some(f), Some(l), Some(c)) => format!(
+                "<div class=\"rb-err-loc\">{}:{}:{}</div>",
+                html_esc(f),
+                l,
+                c
+            ),
+            (Some(f), Some(l), None) => {
+                format!("<div class=\"rb-err-loc\">{}:{}</div>", html_esc(f), l)
+            }
             (Some(f), None, None) => format!("<div class=\"rb-err-loc\">{}</div>", html_esc(f)),
             _ => String::new(),
         };
@@ -531,7 +547,8 @@ impl CompilationError {
             format!("<pre class=\"rb-err-stack\">{}</pre>", html_esc(s))
         });
 
-        format!(r#"<div id="runbox-error-overlay" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);color:#fff;font-family:monospace;padding:2rem;overflow:auto;">
+        format!(
+            r#"<div id="runbox-error-overlay" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);color:#fff;font-family:monospace;padding:2rem;overflow:auto;">
   <div style="max-width:800px;margin:0 auto;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
       <h2 style="color:#ff5555;margin:0;">⚠ Compilation Error</h2>
@@ -543,18 +560,28 @@ impl CompilationError {
     {file_info}
     {stack_html}
   </div>
-</div>"#, msg = html_esc(&self.message))
+</div>"#,
+            msg = html_esc(&self.message)
+        )
     }
 
     /// Genera el script JS para mostrar el error overlay.
     pub fn to_overlay_script(&self) -> String {
-        let html = self.to_overlay_html().replace('\\', "\\\\").replace('`', "\\`");
-        format!("(function(){{ var old = document.getElementById('runbox-error-overlay'); if(old) old.remove(); var d = document.createElement('div'); d.innerHTML = `{html}`; document.body.appendChild(d.firstElementChild); }})();")
+        let html = self
+            .to_overlay_html()
+            .replace('\\', "\\\\")
+            .replace('`', "\\`");
+        format!(
+            "(function(){{ var old = document.getElementById('runbox-error-overlay'); if(old) old.remove(); var d = document.createElement('div'); d.innerHTML = `{html}`; document.body.appendChild(d.firstElementChild); }})();"
+        )
     }
 }
 
 fn html_esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 // ── Reload Progress ──────────────────────────────────────────────────────────
@@ -579,23 +606,43 @@ pub enum ReloadPhase {
 
 impl ReloadProgress {
     pub fn detecting() -> Self {
-        Self { phase: ReloadPhase::Detecting, percent: 10, message: "Detecting changes...".into() }
+        Self {
+            phase: ReloadPhase::Detecting,
+            percent: 10,
+            message: "Detecting changes...".into(),
+        }
     }
 
     pub fn compiling() -> Self {
-        Self { phase: ReloadPhase::Compiling, percent: 40, message: "Compiling...".into() }
+        Self {
+            phase: ReloadPhase::Compiling,
+            percent: 40,
+            message: "Compiling...".into(),
+        }
     }
 
     pub fn injecting() -> Self {
-        Self { phase: ReloadPhase::Injecting, percent: 80, message: "Injecting updates...".into() }
+        Self {
+            phase: ReloadPhase::Injecting,
+            percent: 80,
+            message: "Injecting updates...".into(),
+        }
     }
 
     pub fn complete() -> Self {
-        Self { phase: ReloadPhase::Complete, percent: 100, message: "Done".into() }
+        Self {
+            phase: ReloadPhase::Complete,
+            percent: 100,
+            message: "Done".into(),
+        }
     }
 
     pub fn error(msg: impl Into<String>) -> Self {
-        Self { phase: ReloadPhase::Error, percent: 0, message: msg.into() }
+        Self {
+            phase: ReloadPhase::Error,
+            percent: 0,
+            message: msg.into(),
+        }
     }
 
     /// Genera el script JS para mostrar el indicador de progreso.
@@ -608,7 +655,8 @@ impl ReloadProgress {
             _ => "#8be9fd",
         };
 
-        format!(r#"(function(){{
+        format!(
+            r#"(function(){{
     var bar = document.getElementById('runbox-progress');
     if (!bar) {{
         bar = document.createElement('div');
@@ -622,7 +670,9 @@ impl ReloadProgress {
     if ({pct} >= 100 || '{phase}' === 'error') {{
         setTimeout(function(){{ bar.style.opacity = '0'; setTimeout(function(){{ bar.remove(); }}, 300); }}, 1000);
     }}
-}})();"#, phase = format!("{:?}", self.phase).to_lowercase())
+}})();"#,
+            phase = format!("{:?}", self.phase).to_lowercase()
+        )
     }
 }
 
@@ -728,7 +778,8 @@ impl HotReloader {
                 "transition_ms": self.css_morph.transition_ms,
                 "smooth": self.css_morph.smooth_transition,
             },
-        }).to_string()
+        })
+        .to_string()
     }
 }
 
@@ -820,7 +871,10 @@ mod tests {
 
     #[test]
     fn framework_detection() {
-        assert_eq!(Framework::detect_from_deps(&["react", "react-dom"]), Framework::React);
+        assert_eq!(
+            Framework::detect_from_deps(&["react", "react-dom"]),
+            Framework::React
+        );
         assert_eq!(Framework::detect_from_deps(&["vue"]), Framework::Vue);
         assert_eq!(Framework::detect_from_deps(&["svelte"]), Framework::Svelte);
         assert_eq!(Framework::detect_from_deps(&["lodash"]), Framework::Unknown);
@@ -830,8 +884,11 @@ mod tests {
 
     #[test]
     fn error_overlay_generation() {
-        let err = CompilationError::new("SyntaxError: Unexpected token")
-            .with_location("src/app.tsx", 42, 15);
+        let err = CompilationError::new("SyntaxError: Unexpected token").with_location(
+            "src/app.tsx",
+            42,
+            15,
+        );
         let html = err.to_overlay_html();
         assert!(html.contains("SyntaxError"));
         assert!(html.contains("src/app.tsx"));
