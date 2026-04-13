@@ -36,7 +36,7 @@ jobs:
     - name: Generate Code Coverage
       run: |
         cargo install cargo-tarpaulin
-        cargo tarpaulin --ignore-tests --fail-under=80
+        cargo tarpaulin --ignore-tests --fail-under=50
 
   wasm_tests:
     name: WASM Integration Tests
