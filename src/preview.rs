@@ -398,8 +398,9 @@ impl PreviewMetadata {
         } else {
             html_escape(&self.description)
         };
-        let truncated_desc = if desc.len() > 100 {
-            format!("{}...", &desc[..97])
+        let truncated_desc = if desc.chars().count() > 100 {
+            let truncated: String = desc.chars().take(97).collect();
+            format!("{truncated}...")
         } else {
             desc
         };
