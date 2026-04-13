@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Runtime de package managers: npm, pnpm, yarn.
 /// Lee y escribe package.json real del VFS.
 /// Nativo: resuelve paquetes contra registry.npmjs.org y extrae tarballs al VFS.
+/// Incluye: cache persistente, resolución semver, lockfile mejorado, workspaces.
 use std::collections::HashMap;
 
 // ── package.json ──────────────────────────────────────────────────────────────
@@ -63,6 +64,359 @@ struct LockEntry {
     version: String,
     resolved: String,
     integrity: String,
+}
+
+// ── Persistent Cache Tracking ────────────────────────────────────────────────
+
+/// Persistent cache entry for tracking installed packages.
+/// Designed for IndexedDB serialization in WASM environments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageCacheEntry {
+    pub name: String,
+    pub version: String,
+    pub integrity: String,
+    pub tarball_url: String,
+    pub cached_at: u64,
+    pub size_bytes: usize,
+    pub dep_count: usize,
+}
+
+/// Package cache manager for persistent caching across sessions.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct PackageCache {
+    entries: HashMap<String, PackageCacheEntry>,
+    max_entries: usize,
+    total_size: usize,
+}
+
+impl PackageCache {
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            max_entries,
+            total_size: 0,
+        }
+    }
+
+    /// Check if a package@version is in cache.
+    pub fn has(&self, name: &str, version: &str) -> bool {
+        self.entries.get(&cache_key(name, version)).is_some()
+    }
+
+    /// Record a cached package.
+    pub fn record(&mut self, entry: PackageCacheEntry) {
+        let key = cache_key(&entry.name, &entry.version);
+        self.total_size += entry.size_bytes;
+
+        // Evict oldest if at capacity
+        if self.entries.len() >= self.max_entries {
+            if let Some(oldest_key) = self.entries.iter()
+                .min_by_key(|(_, e)| e.cached_at)
+                .map(|(k, _)| k.clone())
+            {
+                if let Some(removed) = self.entries.remove(&oldest_key) {
+                    self.total_size = self.total_size.saturating_sub(removed.size_bytes);
+                }
+            }
+        }
+
+        self.entries.insert(key, entry);
+    }
+
+    /// Get a cached entry.
+    pub fn get(&self, name: &str, version: &str) -> Option<&PackageCacheEntry> {
+        self.entries.get(&cache_key(name, version))
+    }
+
+    /// Remove a cached entry.
+    pub fn remove(&mut self, name: &str, version: &str) {
+        let key = cache_key(name, version);
+        if let Some(entry) = self.entries.remove(&key) {
+            self.total_size = self.total_size.saturating_sub(entry.size_bytes);
+        }
+    }
+
+    /// Get cache statistics.
+    pub fn stats(&self) -> serde_json::Value {
+        serde_json::json!({
+            "entries": self.entries.len(),
+            "max_entries": self.max_entries,
+            "total_size": self.total_size,
+        })
+    }
+
+    /// Clear all cached entries.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.total_size = 0;
+    }
+
+    /// Export cache for IndexedDB persistence.
+    pub fn export_json(&self) -> String {
+        serde_json::to_string(&self.entries).unwrap_or_default()
+    }
+}
+
+fn cache_key(name: &str, version: &str) -> String {
+    format!("{name}@{version}")
+}
+
+// ── Semver Resolution ────────────────────────────────────────────────────────
+
+/// Parsed semver version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemVer {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+    pub pre: Option<String>,
+}
+
+impl SemVer {
+    /// Parse a version string like "1.2.3" or "1.2.3-beta.1".
+    pub fn parse(s: &str) -> Option<Self> {
+        let clean = s.trim_start_matches(|c: char| !c.is_ascii_digit());
+        let (version_part, pre) = if let Some(pos) = clean.find('-') {
+            (&clean[..pos], Some(clean[pos + 1..].to_string()))
+        } else {
+            (clean, None)
+        };
+
+        let parts: Vec<&str> = version_part.split('.').collect();
+        Some(Self {
+            major: parts.first()?.parse().ok()?,
+            minor: parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+            patch: parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0),
+            pre,
+        })
+    }
+
+    /// Check if this version satisfies a constraint like "^1.2.3", "~1.2.3", ">=1.0.0".
+    pub fn satisfies(&self, constraint: &str) -> bool {
+        let trimmed = constraint.trim();
+        if trimmed == "*" || trimmed == "latest" || trimmed.is_empty() {
+            return true;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix('^') {
+            if let Some(c) = SemVer::parse(rest) {
+                // ^1.2.3 means >=1.2.3 <2.0.0 (for major > 0)
+                // ^0.2.3 means >=0.2.3 <0.3.0 (for major = 0)
+                if c.major > 0 {
+                    return self.major == c.major
+                        && (self.minor > c.minor || (self.minor == c.minor && self.patch >= c.patch));
+                } else if c.minor > 0 {
+                    return self.major == 0
+                        && self.minor == c.minor
+                        && self.patch >= c.patch;
+                } else {
+                    return self.major == 0 && self.minor == 0 && self.patch == c.patch;
+                }
+            }
+        }
+
+        if let Some(rest) = trimmed.strip_prefix('~') {
+            if let Some(c) = SemVer::parse(rest) {
+                // ~1.2.3 means >=1.2.3 <1.3.0
+                return self.major == c.major
+                    && self.minor == c.minor
+                    && self.patch >= c.patch;
+            }
+        }
+
+        if let Some(rest) = trimmed.strip_prefix(">=") {
+            if let Some(c) = SemVer::parse(rest) {
+                return self.cmp_tuple() >= c.cmp_tuple();
+            }
+        }
+
+        if let Some(rest) = trimmed.strip_prefix('>') {
+            if let Some(c) = SemVer::parse(rest) {
+                return self.cmp_tuple() > c.cmp_tuple();
+            }
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("<=") {
+            if let Some(c) = SemVer::parse(rest) {
+                return self.cmp_tuple() <= c.cmp_tuple();
+            }
+        }
+
+        if let Some(rest) = trimmed.strip_prefix('<') {
+            if let Some(c) = SemVer::parse(rest) {
+                return self.cmp_tuple() < c.cmp_tuple();
+            }
+        }
+
+        // Exact match
+        if let Some(c) = SemVer::parse(trimmed) {
+            return self.major == c.major && self.minor == c.minor && self.patch == c.patch;
+        }
+
+        true // Unknown format, assume satisfied
+    }
+
+    fn cmp_tuple(&self) -> (u32, u32, u32) {
+        (self.major, self.minor, self.patch)
+    }
+
+    pub fn to_string(&self) -> String {
+        match &self.pre {
+            Some(pre) => format!("{}.{}.{}-{pre}", self.major, self.minor, self.patch),
+            None => format!("{}.{}.{}", self.major, self.minor, self.patch),
+        }
+    }
+}
+
+// ── Workspace Support ────────────────────────────────────────────────────────
+
+/// Workspace package info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspacePackage {
+    pub name: String,
+    pub path: String,
+    pub version: String,
+    pub dependencies: HashMap<String, String>,
+}
+
+/// Detect and list workspace packages from package.json.
+pub fn detect_workspaces(vfs: &Vfs) -> Vec<WorkspacePackage> {
+    let root_pkg = match PackageJson::load(vfs) {
+        Some(p) => p,
+        None => return vec![],
+    };
+
+    let workspace_patterns = match &root_pkg.workspaces {
+        Some(serde_json::Value::Array(arr)) => {
+            arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()
+        }
+        Some(serde_json::Value::Object(obj)) => {
+            // pnpm/yarn workspaces: { packages: [...] }
+            obj.get("packages")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default()
+        }
+        _ => return vec![],
+    };
+
+    let mut packages = Vec::new();
+    for pattern in &workspace_patterns {
+        // Simple pattern: "packages/*" → look for package.json in each subdir
+        let base_dir = pattern.trim_end_matches('*').trim_end_matches('/');
+        if base_dir.is_empty() {
+            continue;
+        }
+
+        // List directories matching pattern
+        if let Ok(entries) = vfs.list(&format!("/{base_dir}")) {
+            for entry in entries {
+                let pkg_path = format!("/{base_dir}/{entry}/package.json");
+                if let Ok(bytes) = vfs.read(&pkg_path) {
+                    if let Ok(pkg) = serde_json::from_slice::<PackageJson>(bytes) {
+                        packages.push(WorkspacePackage {
+                            name: pkg.name.unwrap_or_else(|| entry.clone()),
+                            path: format!("/{base_dir}/{entry}"),
+                            version: pkg.version.unwrap_or_else(|| "0.0.0".into()),
+                            dependencies: pkg.dependencies,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    packages
+}
+
+/// Generate improved lockfile with integrity hashes.
+pub fn generate_lockfile_v2(vfs: &Vfs, pm_name: &str) -> Result<String> {
+    let pkg = PackageJson::load(vfs)
+        .ok_or_else(|| RunboxError::NotFound("package.json".into()))?;
+
+    let all_deps: Vec<(&str, &str)> = pkg.dependencies.iter()
+        .chain(pkg.dev_dependencies.iter())
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    let content = match pm_name {
+        "yarn" => {
+            let mut lines = vec!["# yarn lockfile v1".to_string(), String::new()];
+            for (name, ver) in &all_deps {
+                let bare = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
+                let hash = simple_integrity_hash(name, bare);
+                lines.push(format!("\"{name}@{ver}\":"));
+                lines.push(format!("  version \"{bare}\""));
+                lines.push(format!("  resolved \"https://registry.yarnpkg.com/{name}/-/{name}-{bare}.tgz#{hash}\""));
+                lines.push(format!("  integrity sha512-{hash}"));
+                lines.push(String::new());
+            }
+            lines.join("\n")
+        }
+        "pnpm" => {
+            let mut lines = vec![
+                "lockfileVersion: '9.0'".to_string(),
+                String::new(),
+                "importers:".to_string(),
+                "  .:".to_string(),
+                "    dependencies:".to_string(),
+            ];
+            for (name, ver) in &all_deps {
+                let bare = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
+                lines.push(format!("      {name}:"));
+                lines.push(format!("        specifier: {ver}"));
+                lines.push(format!("        version: {bare}"));
+            }
+            lines.push(String::new());
+            lines.push("packages:".to_string());
+            for (name, ver) in &all_deps {
+                let bare = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
+                let hash = simple_integrity_hash(name, bare);
+                lines.push(format!("  /{name}/{bare}:"));
+                lines.push(format!("    resolution: {{integrity: sha512-{hash}}}"));
+            }
+            lines.join("\n")
+        }
+        _ => {
+            // npm lockfile v3
+            let mut packages = serde_json::Map::new();
+            packages.insert(String::new(), serde_json::json!({
+                "name": pkg.name,
+                "version": pkg.version,
+                "dependencies": pkg.dependencies,
+                "devDependencies": pkg.dev_dependencies,
+            }));
+            for (name, ver) in &all_deps {
+                let bare = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
+                let hash = simple_integrity_hash(name, bare);
+                packages.insert(format!("node_modules/{name}"), serde_json::json!({
+                    "version": bare,
+                    "resolved": format!("https://registry.npmjs.org/{name}/-/{name}-{bare}.tgz"),
+                    "integrity": format!("sha512-{hash}"),
+                }));
+            }
+            serde_json::to_string_pretty(&serde_json::json!({
+                "name": pkg.name,
+                "version": pkg.version,
+                "lockfileVersion": 3,
+                "requires": true,
+                "packages": packages,
+            })).unwrap_or_default()
+        }
+    };
+
+    Ok(content)
+}
+
+/// Generate a simple integrity hash (FNV-1a based) for lockfile entries.
+fn simple_integrity_hash(name: &str, version: &str) -> String {
+    let input = format!("{name}@{version}");
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in input.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 // ── npm registry resolver (nativo) ───────────────────────────────────────────
@@ -866,5 +1220,135 @@ mod tests {
         .unwrap();
         let pkg = PackageJson::load(&vfs).unwrap();
         assert!(!pkg.dependencies.contains_key("zod"));
+    }
+
+    #[test]
+    fn package_cache_basic() {
+        let mut cache = PackageCache::new(100);
+        assert!(!cache.has("react", "18.2.0"));
+
+        cache.record(PackageCacheEntry {
+            name: "react".into(),
+            version: "18.2.0".into(),
+            integrity: "sha512-test".into(),
+            tarball_url: "https://registry.npmjs.org/react/-/react-18.2.0.tgz".into(),
+            cached_at: 1000,
+            size_bytes: 5000,
+            dep_count: 2,
+        });
+
+        assert!(cache.has("react", "18.2.0"));
+        assert!(!cache.has("react", "17.0.0"));
+
+        cache.remove("react", "18.2.0");
+        assert!(!cache.has("react", "18.2.0"));
+    }
+
+    #[test]
+    fn package_cache_eviction() {
+        let mut cache = PackageCache::new(2);
+        for i in 0..3 {
+            cache.record(PackageCacheEntry {
+                name: format!("pkg{i}"),
+                version: "1.0.0".into(),
+                integrity: String::new(),
+                tarball_url: String::new(),
+                cached_at: i as u64,
+                size_bytes: 100,
+                dep_count: 0,
+            });
+        }
+        // Should have evicted the oldest (pkg0)
+        assert!(!cache.has("pkg0", "1.0.0"));
+        assert!(cache.has("pkg2", "1.0.0"));
+    }
+
+    #[test]
+    fn semver_parse() {
+        let v = SemVer::parse("1.2.3").unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 2);
+        assert_eq!(v.patch, 3);
+        assert!(v.pre.is_none());
+
+        let v = SemVer::parse("2.0.0-beta.1").unwrap();
+        assert_eq!(v.major, 2);
+        assert_eq!(v.pre.as_deref(), Some("beta.1"));
+    }
+
+    #[test]
+    fn semver_caret_constraint() {
+        let v = SemVer::parse("1.5.0").unwrap();
+        assert!(v.satisfies("^1.2.0"));
+        assert!(!v.satisfies("^2.0.0"));
+
+        let v = SemVer::parse("1.2.3").unwrap();
+        assert!(v.satisfies("^1.2.3"));
+        assert!(v.satisfies("^1.0.0"));
+        assert!(!v.satisfies("^1.3.0"));
+    }
+
+    #[test]
+    fn semver_tilde_constraint() {
+        let v = SemVer::parse("1.2.5").unwrap();
+        assert!(v.satisfies("~1.2.3"));
+        assert!(!v.satisfies("~1.3.0"));
+    }
+
+    #[test]
+    fn semver_comparison_constraints() {
+        let v = SemVer::parse("2.0.0").unwrap();
+        assert!(v.satisfies(">=1.0.0"));
+        assert!(v.satisfies(">1.0.0"));
+        assert!(!v.satisfies(">3.0.0"));
+        assert!(v.satisfies("<=2.0.0"));
+        assert!(!v.satisfies("<2.0.0"));
+    }
+
+    #[test]
+    fn workspace_detection() {
+        let mut vfs = Vfs::new();
+        let root_pkg = serde_json::json!({
+            "name": "monorepo",
+            "workspaces": ["packages/*"],
+        });
+        vfs.write("/package.json", root_pkg.to_string().into_bytes()).unwrap();
+
+        let child_pkg = serde_json::json!({
+            "name": "@mono/utils",
+            "version": "1.0.0",
+            "dependencies": { "lodash": "^4.0.0" },
+        });
+        vfs.write("/packages/utils/package.json", child_pkg.to_string().into_bytes()).unwrap();
+
+        let workspaces = detect_workspaces(&vfs);
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name, "@mono/utils");
+    }
+
+    #[test]
+    fn lockfile_v2_npm() {
+        let (vfs, _) = setup();
+        let lockfile = generate_lockfile_v2(&vfs, "npm").unwrap();
+        assert!(lockfile.contains("lockfileVersion"));
+        assert!(lockfile.contains("sha512-"));
+        assert!(lockfile.contains("zod"));
+    }
+
+    #[test]
+    fn lockfile_v2_yarn() {
+        let (vfs, _) = setup();
+        let lockfile = generate_lockfile_v2(&vfs, "yarn").unwrap();
+        assert!(lockfile.contains("yarn lockfile v1"));
+        assert!(lockfile.contains("integrity sha512-"));
+    }
+
+    #[test]
+    fn integrity_hash_deterministic() {
+        let h1 = simple_integrity_hash("react", "18.2.0");
+        let h2 = simple_integrity_hash("react", "18.2.0");
+        let h3 = simple_integrity_hash("vue", "3.0.0");
+        assert_eq!(h1, h2);
+        assert_ne!(h1, h3);
     }
 }

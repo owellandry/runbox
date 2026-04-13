@@ -183,7 +183,7 @@ pub fn handle_sw_request(req: &SwRequest, vfs: &crate::vfs::Vfs) -> SwResponse {
     SwResponse::not_found(&req.id)
 }
 
-fn extract_path(url: &str) -> String {
+pub fn extract_path(url: &str) -> String {
     // "http://localhost:3000/src/app.js" → "/src/app.js"
     if let Some(pos) = url.find("://") {
         let after = &url[pos + 3..];

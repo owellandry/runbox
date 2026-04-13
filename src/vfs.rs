@@ -1,9 +1,10 @@
 use crate::error::{Result, RunboxError};
 use serde::{Deserialize, Serialize};
-/// Virtual Filesystem — sistema de archivos en memoria.
+/// Virtual Filesystem — sistema de archivos en memoria de alto rendimiento.
 /// Todos los runtimes (Bun, Python, etc.) operan sobre este VFS.
-/// Incluye tracking de cambios para hot-reload.
-use std::collections::HashMap;
+/// Incluye tracking de cambios para hot-reload, metadatos de archivos,
+/// content hashing, glob matching, y estadísticas.
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Node {
@@ -11,11 +12,76 @@ pub enum Node {
     Dir(HashMap<String, Node>),
 }
 
+// ── File Metadata ───────────────────────────────────────────────────────────
+
+/// Metadatos de un archivo en el VFS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileMetadata {
+    /// Tamaño en bytes.
+    pub size: usize,
+    /// Hash del contenido (FNV-1a para rapidez).
+    pub content_hash: u64,
+    /// Timestamp de creación (ms).
+    pub created_at: u64,
+    /// Timestamp de última modificación (ms).
+    pub modified_at: u64,
+    /// Si el archivo contiene datos binarios (no UTF-8 válido).
+    pub is_binary: bool,
+}
+
+impl FileMetadata {
+    fn from_content(content: &[u8], now_ms: u64) -> Self {
+        Self {
+            size: content.len(),
+            content_hash: fnv1a_hash(content),
+            created_at: now_ms,
+            modified_at: now_ms,
+            is_binary: std::str::from_utf8(content).is_err(),
+        }
+    }
+
+    fn update(&mut self, content: &[u8], now_ms: u64) {
+        self.size = content.len();
+        self.content_hash = fnv1a_hash(content);
+        self.modified_at = now_ms;
+        self.is_binary = std::str::from_utf8(content).is_err();
+    }
+}
+
+/// FNV-1a hash — rápido y buena distribución para detección de cambios.
+fn fnv1a_hash(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &byte in data {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 #[derive(Debug)]
 pub struct Vfs {
     root: Node,
     /// Paths modificados desde el último drain_changes().
     pending_changes: Vec<FileChange>,
+    /// Metadatos de archivos indexados por path.
+    metadata: BTreeMap<String, FileMetadata>,
+    /// Estadísticas globales del VFS.
+    stats: VfsStats,
+}
+
+/// Estadísticas globales del VFS.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VfsStats {
+    /// Número total de archivos.
+    pub file_count: usize,
+    /// Tamaño total en bytes.
+    pub total_size: usize,
+    /// Número de operaciones de escritura.
+    pub write_ops: u64,
+    /// Número de operaciones de lectura.
+    pub read_ops: u64,
+    /// Número de archivos binarios.
+    pub binary_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,14 +103,47 @@ impl Vfs {
         Self {
             root: Node::Dir(HashMap::new()),
             pending_changes: Vec::new(),
+            metadata: BTreeMap::new(),
+            stats: VfsStats::default(),
         }
     }
 
     /// Escribe un archivo. Crea directorios intermedios si no existen.
     pub fn write(&mut self, path: &str, content: Vec<u8>) -> Result<()> {
+        self.write_at(path, content, 0)
+    }
+
+    /// Escribe un archivo con timestamp específico.
+    pub fn write_at(&mut self, path: &str, content: Vec<u8>, now_ms: u64) -> Result<()> {
         let parts = split_path(path);
         let existed = get(&self.root, &parts).is_ok();
+
+        // Actualizar metadatos
+        let is_binary = std::str::from_utf8(&content).is_err();
+        if existed {
+            if let Some(meta) = self.metadata.get_mut(path) {
+                let old_size = meta.size;
+                let was_binary = meta.is_binary;
+                meta.update(&content, now_ms);
+                self.stats.total_size = self.stats.total_size.saturating_sub(old_size) + content.len();
+                if was_binary && !is_binary {
+                    self.stats.binary_count = self.stats.binary_count.saturating_sub(1);
+                } else if !was_binary && is_binary {
+                    self.stats.binary_count += 1;
+                }
+            }
+        } else {
+            self.metadata.insert(path.to_string(), FileMetadata::from_content(&content, now_ms));
+            self.stats.file_count += 1;
+            self.stats.total_size += content.len();
+            if is_binary {
+                self.stats.binary_count += 1;
+            }
+        }
+        self.stats.write_ops += 1;
+
         insert(&mut self.root, &parts, content)?;
+
         // No emitir cambios en archivos internos de .git
         if !path.starts_with("/.git/") {
             self.pending_changes.push(FileChange {
@@ -68,6 +167,13 @@ impl Vfs {
         }
     }
 
+    /// Lee el contenido como string (falla si es binario inválido).
+    pub fn read_string(&self, path: &str) -> Result<&str> {
+        let bytes = self.read(path)?;
+        std::str::from_utf8(bytes)
+            .map_err(|_| RunboxError::Vfs(format!("{path} contains invalid UTF-8")))
+    }
+
     /// Lista los entries de un directorio.
     pub fn list(&self, path: &str) -> Result<Vec<String>> {
         let parts = split_path(path);
@@ -86,6 +192,16 @@ impl Vfs {
     pub fn remove(&mut self, path: &str) -> Result<()> {
         let parts = split_path(path);
         remove(&mut self.root, &parts)?;
+
+        // Actualizar metadatos y stats
+        if let Some(meta) = self.metadata.remove(path) {
+            self.stats.file_count = self.stats.file_count.saturating_sub(1);
+            self.stats.total_size = self.stats.total_size.saturating_sub(meta.size);
+            if meta.is_binary {
+                self.stats.binary_count = self.stats.binary_count.saturating_sub(1);
+            }
+        }
+
         if !path.starts_with("/.git/") {
             self.pending_changes.push(FileChange {
                 path: path.to_string(),
@@ -109,6 +225,74 @@ impl Vfs {
     /// Retorna cambios sin limpiar la cola.
     pub fn peek_changes(&self) -> &[FileChange] {
         &self.pending_changes
+    }
+
+    // ── File Metadata API ────────────────────────────────────────────────────
+
+    /// Retorna los metadatos de un archivo.
+    pub fn stat(&self, path: &str) -> Option<&FileMetadata> {
+        self.metadata.get(path)
+    }
+
+    /// Retorna el content hash de un archivo (para detección de cambios).
+    pub fn content_hash(&self, path: &str) -> Option<u64> {
+        self.metadata.get(path).map(|m| m.content_hash)
+    }
+
+    /// Verifica si el contenido de un archivo cambió comparando hashes.
+    pub fn has_changed(&self, path: &str, previous_hash: u64) -> bool {
+        self.metadata.get(path)
+            .map_or(true, |m| m.content_hash != previous_hash)
+    }
+
+    // ── Glob Pattern Matching ────────────────────────────────────────────────
+
+    /// Busca archivos que coincidan con un patrón glob.
+    /// Soporta: * (cualquier nombre), ** (cualquier profundidad), ? (un carácter).
+    pub fn glob(&self, pattern: &str) -> Vec<String> {
+        let all_paths = self.all_file_paths();
+        all_paths.into_iter()
+            .filter(|path| glob_matches(path, pattern))
+            .collect()
+    }
+
+    /// Retorna todos los paths de archivos en el VFS.
+    pub fn all_file_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        collect_paths(&self.root, String::new(), &mut paths);
+        paths
+    }
+
+    // ── Statistics ───────────────────────────────────────────────────────────
+
+    /// Retorna las estadísticas del VFS.
+    pub fn stats(&self) -> &VfsStats {
+        &self.stats
+    }
+
+    /// Calcula el tamaño de un directorio (recursivo).
+    pub fn dir_size(&self, path: &str) -> usize {
+        let prefix = if path.ends_with('/') {
+            path.to_string()
+        } else {
+            format!("{path}/")
+        };
+        self.metadata.iter()
+            .filter(|(p, _)| p.starts_with(&prefix) || *p == path)
+            .map(|(_, m)| m.size)
+            .sum()
+    }
+
+    /// Retorna info del VFS como JSON.
+    pub fn info_json(&self) -> String {
+        serde_json::json!({
+            "file_count": self.stats.file_count,
+            "total_size": self.stats.total_size,
+            "binary_count": self.stats.binary_count,
+            "write_ops": self.stats.write_ops,
+            "read_ops": self.stats.read_ops,
+            "metadata_entries": self.metadata.len(),
+        }).to_string()
     }
 }
 
@@ -177,6 +361,80 @@ fn remove(node: &mut Node, parts: &[String]) -> Result<()> {
     }
 }
 
+/// Recolecta todos los paths de archivos recursivamente.
+fn collect_paths(node: &Node, prefix: String, paths: &mut Vec<String>) {
+    match node {
+        Node::File(_) => {
+            paths.push(format!("/{prefix}"));
+        }
+        Node::Dir(entries) => {
+            for (name, child) in entries {
+                let child_path = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{prefix}/{name}")
+                };
+                collect_paths(child, child_path, paths);
+            }
+        }
+    }
+}
+
+/// Glob pattern matching simple pero funcional.
+/// Soporta: * (cualquier segmento), ** (cualquier profundidad), ? (un carácter).
+fn glob_matches(path: &str, pattern: &str) -> bool {
+    let path_parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+    let pattern_parts: Vec<&str> = pattern.trim_matches('/').split('/').collect();
+    glob_match_parts(&path_parts, &pattern_parts)
+}
+
+fn glob_match_parts(path: &[&str], pattern: &[&str]) -> bool {
+    if pattern.is_empty() {
+        return path.is_empty();
+    }
+    if pattern[0] == "**" {
+        // ** matches zero or more path segments
+        if glob_match_parts(path, &pattern[1..]) {
+            return true;
+        }
+        if !path.is_empty() {
+            return glob_match_parts(&path[1..], pattern);
+        }
+        return false;
+    }
+    if path.is_empty() {
+        return false;
+    }
+    if glob_match_segment(path[0], pattern[0]) {
+        glob_match_parts(&path[1..], &pattern[1..])
+    } else {
+        false
+    }
+}
+
+fn glob_match_segment(segment: &str, pattern: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    let seg_bytes = segment.as_bytes();
+    let pat_bytes = pattern.as_bytes();
+    glob_match_chars(seg_bytes, pat_bytes)
+}
+
+fn glob_match_chars(s: &[u8], p: &[u8]) -> bool {
+    if p.is_empty() {
+        return s.is_empty();
+    }
+    if p[0] == b'*' {
+        // * matches zero or more characters within a segment
+        glob_match_chars(s, &p[1..]) || (!s.is_empty() && glob_match_chars(&s[1..], p))
+    } else if p[0] == b'?' {
+        !s.is_empty() && glob_match_chars(&s[1..], &p[1..])
+    } else {
+        !s.is_empty() && s[0] == p[0] && glob_match_chars(&s[1..], &p[1..])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +490,75 @@ mod tests {
         let changes = vfs.drain_changes();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].path, "/src/app.ts");
+    }
+
+    #[test]
+    fn file_metadata_tracking() {
+        let mut vfs = Vfs::new();
+        vfs.write("/test.txt", b"hello world".to_vec()).unwrap();
+
+        let meta = vfs.stat("/test.txt").unwrap();
+        assert_eq!(meta.size, 11);
+        assert!(!meta.is_binary);
+
+        let hash1 = vfs.content_hash("/test.txt").unwrap();
+        vfs.write("/test.txt", b"changed".to_vec()).unwrap();
+        assert!(vfs.has_changed("/test.txt", hash1));
+    }
+
+    #[test]
+    fn vfs_stats() {
+        let mut vfs = Vfs::new();
+        vfs.write("/a.txt", b"aaa".to_vec()).unwrap();
+        vfs.write("/b.txt", b"bbb".to_vec()).unwrap();
+
+        assert_eq!(vfs.stats().file_count, 2);
+        assert_eq!(vfs.stats().total_size, 6);
+        assert_eq!(vfs.stats().write_ops, 2);
+
+        vfs.remove("/a.txt").unwrap();
+        assert_eq!(vfs.stats().file_count, 1);
+        assert_eq!(vfs.stats().total_size, 3);
+    }
+
+    #[test]
+    fn glob_matching() {
+        let mut vfs = Vfs::new();
+        vfs.write("/src/app.ts", b"".to_vec()).unwrap();
+        vfs.write("/src/utils.ts", b"".to_vec()).unwrap();
+        vfs.write("/src/styles/main.css", b"".to_vec()).unwrap();
+        vfs.write("/test/app.test.ts", b"".to_vec()).unwrap();
+
+        let ts_files = vfs.glob("**/*.ts");
+        assert!(ts_files.len() >= 3);
+
+        let src_files = vfs.glob("src/*.ts");
+        assert!(src_files.len() >= 2);
+    }
+
+    #[test]
+    fn read_string_works() {
+        let mut vfs = Vfs::new();
+        vfs.write("/hello.txt", b"hello".to_vec()).unwrap();
+        assert_eq!(vfs.read_string("/hello.txt").unwrap(), "hello");
+    }
+
+    #[test]
+    fn dir_size_calculation() {
+        let mut vfs = Vfs::new();
+        vfs.write("/proj/a.ts", vec![0u8; 100]).unwrap();
+        vfs.write("/proj/b.ts", vec![0u8; 200]).unwrap();
+        vfs.write("/other/c.ts", vec![0u8; 50]).unwrap();
+
+        assert_eq!(vfs.dir_size("/proj"), 300);
+    }
+
+    #[test]
+    fn fnv1a_hash_consistency() {
+        let h1 = fnv1a_hash(b"hello");
+        let h2 = fnv1a_hash(b"hello");
+        let h3 = fnv1a_hash(b"world");
+        assert_eq!(h1, h2);
+        assert_ne!(h1, h3);
     }
 }

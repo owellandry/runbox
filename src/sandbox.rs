@@ -21,6 +21,23 @@ pub enum SandboxEvent {
     ServerReady { port: u16, url: String },
     /// Error fatal del sandbox.
     FatalError { message: String },
+    /// Preview session started.
+    PreviewStarted {
+        url: String,
+        session_id: String,
+    },
+    /// Preview session stopped.
+    PreviewStopped { session_id: String },
+    /// Preview share URL generated.
+    PreviewShared {
+        share_url: String,
+        session_id: String,
+    },
+    /// Custom domain configured for preview.
+    PreviewDomainSet {
+        domain: String,
+        session_id: String,
+    },
 }
 
 /// Comandos que el browser puede enviar al sandbox (input del usuario).
@@ -63,6 +80,23 @@ pub enum SandboxCommand {
     },
     ListDir {
         path: String,
+    },
+    /// Start a preview session.
+    StartPreview {
+        #[serde(default)]
+        config_json: Option<String>,
+    },
+    /// Stop the current preview session.
+    StopPreview,
+    /// Configure the preview domain.
+    SetPreviewDomain {
+        domain: String,
+    },
+    /// Generate a share URL for the current preview.
+    SharePreview,
+    /// Update preview metadata (title, description, image, etc.).
+    SetPreviewMetadata {
+        metadata_json: String,
     },
 }
 

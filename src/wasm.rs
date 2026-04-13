@@ -11,6 +11,7 @@ pub struct RunboxInstance {
     hot: crate::hotreload::HotReloader,
     inspector: crate::inspector::InspectorSession,
     terminal: crate::terminal::Terminal,
+    preview: crate::preview::PreviewManager,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -28,6 +29,7 @@ impl RunboxInstance {
             hot: crate::hotreload::HotReloader::new(80),
             inspector: crate::inspector::InspectorSession::new(),
             terminal,
+            preview: crate::preview::PreviewManager::new(),
         }
     }
 
@@ -205,10 +207,16 @@ impl RunboxInstance {
     /// Ejecuta una tool call del AI. `call_json` es { name, arguments }.
     /// Retorna JSON: { name, content, error }
     pub fn ai_dispatch(&mut self, call_json: &str) -> String {
-        use crate::ai::{skills::dispatch, tools::ToolCall};
+        use crate::ai::{skills::dispatch_with_preview, tools::ToolCall};
 
         let result = serde_json::from_str::<ToolCall>(call_json)
-            .map(|call| dispatch(&call, &mut self.vfs, &mut self.pm, &mut self.console));
+            .map(|call| dispatch_with_preview(
+                &call,
+                &mut self.vfs,
+                &mut self.pm,
+                &mut self.console,
+                Some(&mut self.preview),
+            ));
 
         match result {
             Ok(r) => serde_json::to_string(&r).unwrap_or_default(),
@@ -263,6 +271,19 @@ impl RunboxInstance {
             }
             SandboxCommand::Fullscreen { enable } => {
                 serde_json::json!({ "action": "fullscreen", "enable": enable }).to_string()
+            }
+            // Preview commands
+            SandboxCommand::StartPreview { config_json } => {
+                let config_str = config_json.as_deref().unwrap_or("{}");
+                self.preview_start(config_str, js_sys::Date::now() as u64)
+            }
+            SandboxCommand::StopPreview => self.preview_stop(),
+            SandboxCommand::SetPreviewDomain { domain } => {
+                self.preview_set_domain(&domain)
+            }
+            SandboxCommand::SharePreview => self.preview_share(),
+            SandboxCommand::SetPreviewMetadata { metadata_json } => {
+                self.preview_set_metadata(&metadata_json)
             }
             _ => serde_json::json!({ "error": "not implemented" }).to_string(),
         }
@@ -435,6 +456,158 @@ impl RunboxInstance {
             })
             .to_string(),
         }
+    }
+
+    // ── Preview ──────────────────────────────────────────────────────────────
+
+    /// Start a preview session. `config_json` is optional PreviewConfig JSON.
+    /// Returns JSON with session info (id, url, status).
+    pub fn preview_start(&mut self, config_json: &str, now_ms: u64) -> String {
+        use crate::preview::PreviewConfig;
+        let config: PreviewConfig = if config_json.is_empty() || config_json == "{}" {
+            PreviewConfig::default()
+        } else {
+            match serde_json::from_str(config_json) {
+                Ok(c) => c,
+                Err(e) => {
+                    return serde_json::json!({
+                        "error": format!("invalid preview config: {e}")
+                    }).to_string();
+                }
+            }
+        };
+
+        let session = self.preview.start(config, now_ms);
+        session.to_json()
+    }
+
+    /// Stop the current preview session.
+    pub fn preview_stop(&mut self) -> String {
+        match self.preview.stop() {
+            Ok(()) => serde_json::json!({ "ok": true }).to_string(),
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        }
+    }
+
+    /// Get the current preview status as JSON.
+    pub fn preview_status(&self) -> String {
+        self.preview.status_json()
+    }
+
+    /// Set a custom domain for the current preview session.
+    /// The user's DNS must point this domain to the host running RunBox.
+    pub fn preview_set_domain(&mut self, domain: &str) -> String {
+        match self.preview.set_domain(domain) {
+            Ok(()) => {
+                let url = self.preview.current()
+                    .map(|s| s.base_url())
+                    .unwrap_or_default();
+                serde_json::json!({
+                    "ok": true,
+                    "domain": domain,
+                    "url": url,
+                }).to_string()
+            }
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        }
+    }
+
+    /// Generate a share URL for the current preview.
+    /// Others can use this URL to view the project if the domain is accessible.
+    pub fn preview_share(&mut self) -> String {
+        match self.preview.share() {
+            Ok(url) => {
+                let session_id = self.preview.current()
+                    .map(|s| s.id.clone())
+                    .unwrap_or_default();
+                serde_json::json!({
+                    "ok": true,
+                    "share_url": url,
+                    "session_id": session_id,
+                }).to_string()
+            }
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        }
+    }
+
+    /// Update preview metadata (title, description, image, etc.).
+    /// `metadata_json`: JSON with PreviewMetadata fields.
+    pub fn preview_set_metadata(&mut self, metadata_json: &str) -> String {
+        use crate::preview::PreviewMetadata;
+        let metadata: PreviewMetadata = match serde_json::from_str(metadata_json) {
+            Ok(m) => m,
+            Err(e) => {
+                return serde_json::json!({
+                    "error": format!("invalid metadata: {e}")
+                }).to_string();
+            }
+        };
+
+        match self.preview.current_mut() {
+            Some(session) => {
+                session.config.metadata = metadata;
+                serde_json::json!({ "ok": true }).to_string()
+            }
+            None => serde_json::json!({
+                "error": "no active preview session"
+            }).to_string(),
+        }
+    }
+
+    /// Update the full preview configuration.
+    /// `config_json`: JSON with PreviewConfig fields.
+    pub fn preview_update_config(&mut self, config_json: &str) -> String {
+        use crate::preview::PreviewConfig;
+        let config: PreviewConfig = match serde_json::from_str(config_json) {
+            Ok(c) => c,
+            Err(e) => {
+                return serde_json::json!({
+                    "error": format!("invalid config: {e}")
+                }).to_string();
+            }
+        };
+
+        match self.preview.update_config(config) {
+            Ok(()) => serde_json::json!({ "ok": true }).to_string(),
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        }
+    }
+
+    /// Handle an incoming preview request from the Service Worker.
+    /// Enhanced version of sw_handle_request with CORS, live-reload injection,
+    /// metadata, custom headers, and SPA routing.
+    /// Falls back to regular sw_handle_request if no preview session is active.
+    pub fn preview_handle_request(&mut self, request_json: &str) -> String {
+        use crate::network::SwRequest;
+
+        let req: SwRequest = match serde_json::from_str(request_json) {
+            Ok(r) => r,
+            Err(e) => {
+                return serde_json::json!({
+                    "id": "",
+                    "status": 400,
+                    "headers": {},
+                    "body": format!("invalid request: {e}"),
+                }).to_string();
+            }
+        };
+
+        // If preview is active, use the enhanced preview router
+        if let Some(session) = self.preview.current_mut() {
+            if session.status == crate::preview::PreviewStatus::Running {
+                let resp = crate::preview::handle_preview_request(&req, &self.vfs, session);
+                return serde_json::to_string(&resp).unwrap_or_default();
+            }
+        }
+
+        // Fallback to standard handler
+        let resp = crate::network::handle_sw_request(&req, &self.vfs);
+        serde_json::to_string(&resp).unwrap_or_default()
+    }
+
+    /// Get preview session history as JSON.
+    pub fn preview_history(&self) -> String {
+        serde_json::to_string(&self.preview.history()).unwrap_or_default()
     }
 
     // ── Hot Reload ────────────────────────────────────────────────────────────
