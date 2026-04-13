@@ -194,7 +194,7 @@ mod tests {
     fn test_client_call_tool_connected() {
         let mut client = McpClient::new(create_test_config());
         client.initialize().unwrap();
-        
+
         let result = client.call_tool("my_tool", json!({})).unwrap();
         assert!(!result.is_error);
     }
@@ -213,9 +213,8 @@ mod tests {
     fn test_client_read_resource_connected() {
         let mut client = McpClient::new(create_test_config());
         client.initialize().unwrap();
-        
+
         let result = client.read_resource("file:///test.txt").unwrap();
         assert!(result.contains("[stub]"));
     }
 }
-

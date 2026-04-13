@@ -265,9 +265,9 @@ fn ok_out(s: impl Into<String>) -> ExecOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process::ProcessManager;
     use crate::shell::Command;
     use crate::vfs::Vfs;
-    use crate::process::ProcessManager;
 
     #[test]
     fn test_python_name() {
@@ -289,13 +289,15 @@ mod tests {
 
         let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
         assert_eq!(out.exit_code, 0);
-        
+
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(stdout.contains("Successfully installed requests==2.28.1"));
 
         // Verify VFS has the package metadata
         assert!(vfs.exists("/site-packages/requests-2.28.1.dist-info/METADATA"));
-        let meta = vfs.read_string("/site-packages/requests-2.28.1.dist-info/METADATA").unwrap();
+        let meta = vfs
+            .read_string("/site-packages/requests-2.28.1.dist-info/METADATA")
+            .unwrap();
         assert!(meta.contains("Name: requests"));
         assert!(meta.contains("Version: 2.28.1"));
     }
@@ -307,11 +309,16 @@ mod tests {
         let runtime = PythonRuntime;
 
         // Create requirements.txt
-        vfs.write("/requirements.txt", b"flask==2.0.1\nnumpy\n".to_vec()).unwrap();
+        vfs.write("/requirements.txt", b"flask==2.0.1\nnumpy\n".to_vec())
+            .unwrap();
 
         let cmd = Command {
             program: "pip".to_string(),
-            args: vec!["install".to_string(), "-r".to_string(), "requirements.txt".to_string()],
+            args: vec![
+                "install".to_string(),
+                "-r".to_string(),
+                "requirements.txt".to_string(),
+            ],
             env: vec![],
         };
 
@@ -328,8 +335,10 @@ mod tests {
         let mut pm = ProcessManager::new();
         let runtime = PythonRuntime;
 
-        vfs.write("/site-packages/flask-2.0.1.dist-info/METADATA", vec![]).unwrap();
-        vfs.write("/site-packages/numpy-latest.dist-info/METADATA", vec![]).unwrap();
+        vfs.write("/site-packages/flask-2.0.1.dist-info/METADATA", vec![])
+            .unwrap();
+        vfs.write("/site-packages/numpy-latest.dist-info/METADATA", vec![])
+            .unwrap();
 
         let cmd = Command {
             program: "pip".to_string(),
@@ -350,7 +359,11 @@ mod tests {
         let mut pm = ProcessManager::new();
         let runtime = PythonRuntime;
 
-        vfs.write("/site-packages/pytest-latest.dist-info/METADATA", b"Name: pytest\nVersion: latest\n".to_vec()).unwrap();
+        vfs.write(
+            "/site-packages/pytest-latest.dist-info/METADATA",
+            b"Name: pytest\nVersion: latest\n".to_vec(),
+        )
+        .unwrap();
 
         let cmd = Command {
             program: "pip".to_string(),
@@ -371,7 +384,8 @@ mod tests {
         let mut pm = ProcessManager::new();
         let runtime = PythonRuntime;
 
-        vfs.write("/site-packages/django-4.0.0.dist-info/METADATA", vec![]).unwrap();
+        vfs.write("/site-packages/django-4.0.0.dist-info/METADATA", vec![])
+            .unwrap();
 
         let cmd = Command {
             program: "pip".to_string(),

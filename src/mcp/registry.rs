@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn test_parse_qualified() {
         let mut clients = HashMap::new();
-        
+
         let mut client1 = McpClient::new(create_test_config("srv1"));
         client1.caps.tools.push(McpTool {
             name: "tool_a".into(),
@@ -253,4 +253,3 @@ mod tests {
         }
     }
 }
-

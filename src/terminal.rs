@@ -239,16 +239,16 @@ mod tests {
         let mut term = Terminal::new(10);
         term.write_stdout(1, "hello");
         term.write_stderr(1, "error");
-        
+
         let chunks = term.output_drain();
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].stream, Stream::Stdout);
         assert_eq!(chunks[0].data, "hello");
-        
+
         assert_eq!(chunks[1].stream, Stream::Stderr);
         assert!(chunks[1].data.contains("error"));
         assert!(chunks[1].data.contains("\x1b[31m"));
-        
+
         assert!(term.output_drain().is_empty());
     }
 
@@ -258,7 +258,7 @@ mod tests {
         assert!(!term.input_pending());
         term.input_push("cat", Some(2));
         assert!(term.input_pending());
-        
+
         let input = term.input_pop().unwrap();
         assert_eq!(input.data, "cat");
         assert_eq!(input.pid, Some(2));

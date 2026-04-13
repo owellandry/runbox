@@ -353,12 +353,33 @@ mod tests {
             classes: vec!["container".into()],
             attributes: vec![],
             box_model: BoxModel {
-                x: 10.0, y: 10.0, width: 100.0, height: 100.0,
-                margin: Spacing { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 },
-                padding: Spacing { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 },
-                border: Spacing { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 },
+                x: 10.0,
+                y: 10.0,
+                width: 100.0,
+                height: 100.0,
+                margin: Spacing {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+                padding: Spacing {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
+                border: Spacing {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                },
             },
-            styles: ComputedStyles { rules: vec![], computed: vec![] },
+            styles: ComputedStyles {
+                rules: vec![],
+                computed: vec![],
+            },
             children: vec![],
             inner_text: None,
             source: None,
@@ -367,7 +388,7 @@ mod tests {
         session.set_node(node);
         assert_eq!(session.history.len(), 1);
         assert!(session.selected.is_some());
-        
+
         let overlay = session.overlay();
         assert!(overlay.is_some());
         assert_eq!(overlay.unwrap().node_id, 1);

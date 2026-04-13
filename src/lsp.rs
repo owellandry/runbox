@@ -122,7 +122,8 @@ mod tests {
     #[test]
     fn test_get_diagnostics() {
         let mut vfs = Vfs::new();
-        vfs.write("test.ts", b"let a = 1;\ndebugger;\nlet b = 2;".to_vec()).unwrap();
+        vfs.write("test.ts", b"let a = 1;\ndebugger;\nlet b = 2;".to_vec())
+            .unwrap();
         let diags = LspServer::get_diagnostics(&vfs, "test.ts").unwrap();
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].range.start_line, 1);

@@ -772,9 +772,9 @@ fn search_recursive(vfs: &Vfs, path: &str, query: &str, ext: Option<&str>, out: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::Vfs;
-    use crate::process::ProcessManager;
     use crate::console::Console;
+    use crate::process::ProcessManager;
+    use crate::vfs::Vfs;
     use serde_json::json;
 
     fn setup_server() -> McpServer {
@@ -793,10 +793,10 @@ mod tests {
             "method": "initialize",
             "params": {}
         });
-        
+
         let response = server.handle(&req.to_string()).unwrap();
         let resp_json: serde_json::Value = serde_json::from_str(&response).unwrap();
-        
+
         assert_eq!(resp_json["id"], 1);
         assert!(resp_json["result"]["capabilities"]["tools"].is_object());
         assert_eq!(resp_json["result"]["serverInfo"]["name"], "runbox");
@@ -806,13 +806,13 @@ mod tests {
     fn test_notifications_initialized() {
         let mut server = setup_server();
         assert!(!server.initialized);
-        
+
         let req = json!({
             "jsonrpc": "2.0",
             "method": "notifications/initialized",
             "params": {}
         });
-        
+
         let response = server.handle(&req.to_string());
         assert!(response.is_none());
         assert!(server.initialized);
@@ -827,18 +827,18 @@ mod tests {
             "method": "tools/list",
             "params": {}
         });
-        
+
         let response = server.handle(&req.to_string()).unwrap();
         let resp_json: serde_json::Value = serde_json::from_str(&response).unwrap();
-        
+
         assert_eq!(resp_json["id"], 2);
         assert!(resp_json["result"]["tools"].as_array().unwrap().len() > 0);
     }
-    
+
     #[test]
     fn test_tool_write_and_read_file() {
         let mut server = setup_server();
-        
+
         // Write file
         let req_write = json!({
             "jsonrpc": "2.0",
@@ -852,11 +852,11 @@ mod tests {
                 }
             }
         });
-        
+
         let res_write = server.handle(&req_write.to_string()).unwrap();
         let res_write_json: serde_json::Value = serde_json::from_str(&res_write).unwrap();
         assert_eq!(res_write_json["result"]["isError"], false);
-        
+
         // Read file
         let req_read = json!({
             "jsonrpc": "2.0",
@@ -869,11 +869,13 @@ mod tests {
                 }
             }
         });
-        
+
         let res_read = server.handle(&req_read.to_string()).unwrap();
         let res_read_json: serde_json::Value = serde_json::from_str(&res_read).unwrap();
-        
-        let content = res_read_json["result"]["content"][0]["text"].as_str().unwrap();
+
+        let content = res_read_json["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap();
         assert_eq!(content, "hello world");
     }
 }
