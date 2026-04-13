@@ -48,7 +48,8 @@ impl Index {
     }
 
     fn save(&self, vfs: &mut Vfs) -> Result<()> {
-        let json = serde_json::to_vec(self).unwrap();
+        let json = serde_json::to_vec(self)
+            .map_err(|e| crate::error::RunboxError::Runtime(format!("index serialization failed: {e}")))?;
         vfs.write("/.git/index", json)
     }
 }
@@ -74,7 +75,9 @@ fn load_log(vfs: &Vfs) -> Vec<GitCommit> {
 }
 
 fn save_log(vfs: &mut Vfs, log: &[GitCommit]) -> Result<()> {
-    vfs.write("/.git/log", serde_json::to_vec(log).unwrap())
+    let json = serde_json::to_vec(log)
+        .map_err(|e| crate::error::RunboxError::Runtime(format!("log serialization failed: {e}")))?;
+    vfs.write("/.git/log", json)
 }
 
 fn head_sha(vfs: &Vfs) -> Option<String> {
@@ -248,7 +251,7 @@ fn git_commit(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
     let timestamp = now_str();
     let commit_content = format!(
         "tree {tree}\nparent {parent}\nauthor RunBox <runbox@local> {ts}\n\n{msg}",
-        tree = sha1(serde_json::to_string(&index.staged).unwrap().as_bytes()),
+        tree = sha1(serde_json::to_string(&index.staged).unwrap_or_default().as_bytes()),
         parent = parent.as_deref().unwrap_or(""),
         ts = timestamp,
         msg = message,
@@ -828,7 +831,9 @@ impl GitCredentials {
     }
 
     pub fn save(&self, vfs: &mut Vfs) -> Result<()> {
-        vfs.write("/.git/credentials", serde_json::to_vec(self).unwrap())
+        let json = serde_json::to_vec(self)
+            .map_err(|e| crate::error::RunboxError::Runtime(format!("credentials serialization failed: {e}")))?;
+        vfs.write("/.git/credentials", json)
     }
 
     /// Authorization header value para HTTP.

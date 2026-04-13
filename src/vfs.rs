@@ -42,18 +42,18 @@ impl Vfs {
 
     /// Escribe un archivo. Crea directorios intermedios si no existen.
     pub fn write(&mut self, path: &str, content: Vec<u8>) -> Result<()> {
-        let kind = if self.exists(path) {
-            ChangeKind::Modified
-        } else {
-            ChangeKind::Created
-        };
         let parts = split_path(path);
+        let existed = get(&self.root, &parts).is_ok();
         insert(&mut self.root, &parts, content)?;
         // No emitir cambios en archivos internos de .git
         if !path.starts_with("/.git/") {
             self.pending_changes.push(FileChange {
                 path: path.to_string(),
-                kind,
+                kind: if existed {
+                    ChangeKind::Modified
+                } else {
+                    ChangeKind::Created
+                },
             });
         }
         Ok(())

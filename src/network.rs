@@ -22,7 +22,7 @@ pub struct HttpResponse {
 
 impl HttpResponse {
     pub fn body_str(&self) -> &str {
-        std::str::from_utf8(&self.body).unwrap_or("")
+        std::str::from_utf8(&self.body).unwrap_or("[binary content]")
     }
 
     pub fn json<T: for<'de> Deserialize<'de>>(&self) -> Result<T> {

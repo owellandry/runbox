@@ -87,10 +87,6 @@ fn skill_exec_command(
         RuntimeTarget::Npm => PackageManagerRuntime::npm().exec(&cmd, vfs, pm),
         RuntimeTarget::Pnpm => PackageManagerRuntime::pnpm().exec(&cmd, vfs, pm),
         RuntimeTarget::Yarn => PackageManagerRuntime::yarn().exec(&cmd, vfs, pm),
-        RuntimeTarget::Unknown => Err(RunboxError::Shell(format!(
-            "{}: command not found",
-            cmd.program
-        ))),
         _ => Err(RunboxError::Shell(format!(
             "{}: command not found",
             cmd.program

@@ -87,8 +87,8 @@ impl McpClient {
             }),
         );
 
-        // TODO: enviar _req por el transporte y parsear InitializeResult
-        // Por ahora marcamos como conectado para poder registrar el servidor
+        // NOTE: Transport integration pending — handshake is simulated.
+        // When real transport is implemented, send _req and parse InitializeResult.
         self.state = ConnectionState::Connected;
         Ok(())
     }
@@ -110,10 +110,10 @@ impl McpClient {
             }),
         );
 
-        // TODO: enviar por transporte y deserializar respuesta
-        // Stub que retorna un resultado placeholder
+        // NOTE: Transport integration pending — returns a stub result.
+        // When real transport is implemented, send _req and deserialize response.
         Ok(ToolCallResult::ok(format!(
-            "[stub] tool '{}' called on server '{}'",
+            "[stub] tool '{}' called on server '{}' — transport not yet wired",
             name, self.config.name
         )))
     }
@@ -128,16 +128,19 @@ impl McpClient {
         }
 
         let _req = self.build_request("resources/read", json!({ "uri": uri }));
-        // TODO: enviar por transporte
+        // NOTE: Transport integration pending — returns stub content.
         Ok(format!(
-            "[stub] resource '{uri}' from server '{}'",
+            "[stub] resource '{uri}' from server '{}' — transport not yet wired",
             self.config.name
         ))
     }
 
     fn build_request(&mut self, method: &str, params: Value) -> RpcRequest {
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = self.next_id.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
         RpcRequest {
             jsonrpc: JSONRPC_VERSION.into(),
             id: Some(RequestId::Number(id)),

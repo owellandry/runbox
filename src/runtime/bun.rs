@@ -73,7 +73,7 @@ fn bun_run(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exec
 fn bun_install(_cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
     // Delegar al PackageManagerRuntime con soporte real de package.json
     use crate::runtime::npm::PackageManagerRuntime;
-    let install_cmd = Command::parse("bun install").unwrap();
+    let install_cmd = Command::parse("bun install")?;
     PackageManagerRuntime::bun_via_npm().exec(&install_cmd, vfs, pm)
 }
 
