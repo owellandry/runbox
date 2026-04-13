@@ -38,7 +38,10 @@ impl ProcessManager {
 
     pub fn spawn(&mut self, command: impl Into<String>, args: Vec<String>) -> Pid {
         let pid = self.next_pid;
-        self.next_pid += 1;
+        self.next_pid = self.next_pid.wrapping_add(1);
+        if self.next_pid == 0 {
+            self.next_pid = 1; // Skip PID 0 on overflow
+        }
         self.processes.insert(
             pid,
             Process {
@@ -80,6 +83,17 @@ impl ProcessManager {
             .values()
             .filter(|p| p.status == ProcessStatus::Running)
             .collect()
+    }
+
+    /// Removes all terminated (Exited or Killed) processes to free memory.
+    pub fn cleanup(&mut self) {
+        self.processes
+            .retain(|_, p| p.status == ProcessStatus::Running);
+    }
+
+    /// Returns the total number of tracked processes.
+    pub fn count(&self) -> usize {
+        self.processes.len()
     }
 }
 

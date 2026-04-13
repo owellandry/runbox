@@ -35,7 +35,8 @@ impl PackageJson {
     }
 
     fn save(&self, vfs: &mut Vfs) -> Result<()> {
-        let json = serde_json::to_string_pretty(self).unwrap();
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| RunboxError::Runtime(format!("package.json serialization failed: {e}")))?;
         vfs.write("/package.json", json.into_bytes())
     }
 
@@ -194,7 +195,7 @@ fn write_lock(vfs: &mut Vfs, pm_name: &str, pkg: &PackageJson) -> Result<()> {
                 "lockfileVersion": 3,
                 "packages": entries
             }))
-            .unwrap()
+            .unwrap_or_default()
         }
     };
 
@@ -448,13 +449,14 @@ fn pm_add(
     for spec in &packages {
         let (name, ver) = parse_package_spec(spec, exact);
         pkg.add_dep(&name, &ver, dev);
+        let bare_ver = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
         vfs.write(
             &format!("/node_modules/{name}/package.json"),
-            serde_json::json!({ "name": name, "version": &ver[1..] })
+            serde_json::json!({ "name": name, "version": bare_ver })
                 .to_string()
                 .into_bytes(),
         )?;
-        added.push(format!("{name}@{}", &ver[1..]));
+        added.push(format!("{name}@{bare_ver}"));
     }
 
     pkg.save(vfs)?;
@@ -652,7 +654,7 @@ fn pm_init(
     if yes {
         Ok(ok_out("Wrote to /package.json"))
     } else {
-        Ok(ok_out(serde_json::to_string_pretty(&pkg).unwrap()))
+        Ok(ok_out(serde_json::to_string_pretty(&pkg).unwrap_or_default()))
     }
 }
 
@@ -748,17 +750,31 @@ fn ok_out(text: impl Into<String>) -> ExecOutput {
 
 /// Parsea "react@^18.2.0" → ("react", "^18.2.0")
 fn parse_package_spec(spec: &str, exact: bool) -> (String, String) {
-    // @scope/pkg@version
-    let (name, ver) = if let Some(pos) = spec[1..].find('@') {
-        (&spec[..pos + 1], &spec[pos + 2..])
+    // @scope/pkg@version — need to skip first char for scoped packages
+    let (name, ver) = if spec.starts_with('@') {
+        // Scoped package: @scope/pkg@version
+        if let Some(pos) = spec[1..].find('@') {
+            (&spec[..pos + 1], &spec[pos + 2..])
+        } else {
+            (spec, "latest")
+        }
+    } else if let Some(pos) = spec.find('@') {
+        (&spec[..pos], &spec[pos + 1..])
     } else {
         (spec, "latest")
     };
 
-    let version_str = if exact || ver == "latest" {
-        format!("^{}", if ver == "latest" { "1.0.0" } else { ver })
-    } else {
+    let version_str = if ver == "latest" {
+        "^1.0.0".to_string()
+    } else if exact {
+        // Exact: strip any existing range prefix and use bare version
+        let bare = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
+        bare.to_string()
+    } else if ver.starts_with('^') || ver.starts_with('~') || ver.starts_with('>') {
+        // Already has a range prefix
         ver.to_string()
+    } else {
+        format!("^{ver}")
     };
 
     (name.to_string(), version_str)

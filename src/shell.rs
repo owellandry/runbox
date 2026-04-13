@@ -77,8 +77,20 @@ fn tokenize(line: &str) -> Vec<String> {
     let mut current = String::new();
     let mut in_quotes = false;
     let mut quote_char = ' ';
+    let mut escape_next = false;
 
     for ch in line.chars() {
+        if escape_next {
+            current.push(ch);
+            escape_next = false;
+            continue;
+        }
+
+        if ch == '\\' {
+            escape_next = true;
+            continue;
+        }
+
         match ch {
             '"' | '\'' if !in_quotes => {
                 in_quotes = true;
@@ -95,6 +107,10 @@ fn tokenize(line: &str) -> Vec<String> {
             }
             _ => current.push(ch),
         }
+    }
+    // If there's a trailing backslash, include it literally
+    if escape_next {
+        current.push('\\');
     }
     if !current.is_empty() {
         tokens.push(current);

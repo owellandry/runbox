@@ -71,10 +71,14 @@ pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
 
         // type Foo = ...;
         if line.starts_with("type ") && line.contains('=') {
-            while i < lines.len() && !lines[i].trim_end().ends_with(';') {
+            // Skip lines until we find one ending with ';' or exhaust lines
+            while i < lines.len() {
+                let ends = lines[i].trim_end().ends_with(';');
                 i += 1;
+                if ends {
+                    break;
+                }
             }
-            i += 1;
             continue;
         }
 
@@ -226,9 +230,18 @@ fn peek_keyword(
     first: char,
     _iter: &mut std::iter::Peekable<std::str::Chars<'_>>,
 ) -> String {
-    // Heurística muy simple: mirar el contexto
+    // Build the keyword from the already-collected result context.
+    // We look backwards from the end of `ctx` to find any partial word,
+    // then prepend `first` to build the full keyword.
+    // NOTE: We intentionally do NOT consume from `iter` here because
+    // non-matching keywords must remain in the stream for normal output.
     let _ = ctx;
-    first.to_string()
+    let mut word = String::new();
+    word.push(first);
+    // Peek ahead without consuming — collect chars that would form the keyword
+    let remaining: String = _iter.clone().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    word.push_str(&remaining);
+    word
 }
 
 // ── Motor WASM — js_sys::eval ─────────────────────────────────────────────────

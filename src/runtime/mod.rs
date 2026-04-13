@@ -19,7 +19,11 @@ pub struct ExecOutput {
 
 impl ExecOutput {
     pub fn stdout_str(&self) -> &str {
-        std::str::from_utf8(&self.stdout).unwrap_or("")
+        std::str::from_utf8(&self.stdout).unwrap_or("[binary output]")
+    }
+
+    pub fn stderr_str(&self) -> &str {
+        std::str::from_utf8(&self.stderr).unwrap_or("[binary output]")
     }
 }
 

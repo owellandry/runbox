@@ -2,6 +2,8 @@ use crate::process::Pid;
 use serde::{Deserialize, Serialize};
 /// Sistema de logs de consola — captura output estructurado de todos los procesos.
 use std::collections::VecDeque;
+#[cfg(target_arch = "wasm32")]
+use js_sys;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -153,7 +155,6 @@ fn now_ms() -> u64 {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        // En WASM se usa performance.now() desde JS
-        0
+        js_sys::Date::now() as u64
     }
 }
