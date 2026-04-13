@@ -980,6 +980,8 @@ fn resolve_module_path(from: &str, dep: &str) -> String {
         return dep.to_string();
     }
     if !dep.starts_with('.') {
+        // For bare imports, we leave them as-is. The bundler treats them as externals
+        // or expects the runtime to resolve them.
         return dep.to_string();
     }
 

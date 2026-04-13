@@ -715,9 +715,15 @@ fn eval_js(source: &str) -> JsOutput {
                         resolved + '.js',
                         resolved + '.cjs',
                         resolved + '.mjs',
+                        resolved + '.ts',
+                        resolved + '.tsx',
+                        resolved + '.jsx',
                         resolved + '/index.js',
                         resolved + '/index.cjs',
                         resolved + '/index.mjs',
+                        resolved + '/index.ts',
+                        resolved + '/index.tsx',
+                        resolved + '/index.jsx',
                     ];
                     for (const candidate of entryCandidates) {
                         if (vfs[candidate] !== undefined) return { path: candidate, code: vfs[candidate] };
@@ -728,12 +734,18 @@ fn eval_js(source: &str) -> JsOutput {
             const candidates = [
                 name + '/index.js',
                 name + '/index.cjs',
+                name + '/index.mjs',
+                name + '/index.ts',
+                name + '/index.tsx',
+                name + '/index.jsx',
                 name + '/index.json',
                 name + '.js',
                 name + '.cjs',
-                name + '.json',
-                name + '/index.mjs',
                 name + '.mjs',
+                name + '.ts',
+                name + '.tsx',
+                name + '.jsx',
+                name + '.json',
             ];
             for (const c of candidates) {
                 if (vfs[c] !== undefined) return { path: c, code: vfs[c] };
@@ -760,6 +772,25 @@ fn eval_js(source: &str) -> JsOutput {
                             }
                         }
                     } catch(e) {}
+                }
+                // Direct subpath fallback for non-scoped packages
+                const directCandidates = [
+                    pkgName + '/' + subPath,
+                    pkgName + '/' + subPath + '.js',
+                    pkgName + '/' + subPath + '.cjs',
+                    pkgName + '/' + subPath + '.mjs',
+                    pkgName + '/' + subPath + '.ts',
+                    pkgName + '/' + subPath + '.tsx',
+                    pkgName + '/' + subPath + '.jsx',
+                    pkgName + '/' + subPath + '/index.js',
+                    pkgName + '/' + subPath + '/index.cjs',
+                    pkgName + '/' + subPath + '/index.mjs',
+                    pkgName + '/' + subPath + '/index.ts',
+                    pkgName + '/' + subPath + '/index.tsx',
+                    pkgName + '/' + subPath + '/index.jsx',
+                ];
+                for (const c of directCandidates) {
+                    if (vfs[c] !== undefined) return { path: c, code: vfs[c] };
                 }
             }
             // Handle scoped package subpath imports like '@scope/pkg/subpath'
@@ -789,7 +820,16 @@ fn eval_js(source: &str) -> JsOutput {
                         pkgName + '/' + subPath,
                         pkgName + '/' + subPath + '.js',
                         pkgName + '/' + subPath + '.cjs',
+                        pkgName + '/' + subPath + '.mjs',
+                        pkgName + '/' + subPath + '.ts',
+                        pkgName + '/' + subPath + '.tsx',
+                        pkgName + '/' + subPath + '.jsx',
                         pkgName + '/' + subPath + '/index.js',
+                        pkgName + '/' + subPath + '/index.cjs',
+                        pkgName + '/' + subPath + '/index.mjs',
+                        pkgName + '/' + subPath + '/index.ts',
+                        pkgName + '/' + subPath + '/index.tsx',
+                        pkgName + '/' + subPath + '/index.jsx',
                     ];
                     for (const c of directCandidates) {
                         if (vfs[c] !== undefined) return { path: c, code: vfs[c] };
