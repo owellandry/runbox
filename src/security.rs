@@ -356,9 +356,7 @@ pub fn sanitize_html(html: &str) -> String {
                     result[after_eq..].find(q).map(|p| after_eq + p + 1)
                 } else {
                     // Unquoted: ends at space or >
-                    result[after_eq..]
-                        .find([' ', '>'])
-                        .map(|p| after_eq + p)
+                    result[after_eq..].find([' ', '>']).map(|p| after_eq + p)
                 };
                 match end {
                     Some(e) => {

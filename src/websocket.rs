@@ -224,7 +224,6 @@ pub enum ViewerPermission {
     Edit,
 }
 
-
 impl WsChannel {
     pub fn new() -> Self {
         Self {

@@ -115,9 +115,10 @@ impl PackageCache {
                 .iter()
                 .min_by_key(|(_, e)| e.cached_at)
                 .map(|(k, _)| k.clone())
-                && let Some(removed) = self.entries.remove(&oldest_key) {
-                    self.total_size = self.total_size.saturating_sub(removed.size_bytes);
-                }
+            && let Some(removed) = self.entries.remove(&oldest_key)
+        {
+            self.total_size = self.total_size.saturating_sub(removed.size_bytes);
+        }
 
         self.entries.insert(key, entry);
     }
@@ -198,45 +199,50 @@ impl SemVer {
         }
 
         if let Some(rest) = trimmed.strip_prefix('^')
-            && let Some(c) = SemVer::parse(rest) {
-                // ^1.2.3 means >=1.2.3 <2.0.0 (for major > 0)
-                // ^0.2.3 means >=0.2.3 <0.3.0 (for major = 0)
-                if c.major > 0 {
-                    return self.major == c.major
-                        && (self.minor > c.minor
-                            || (self.minor == c.minor && self.patch >= c.patch));
-                } else if c.minor > 0 {
-                    return self.major == 0 && self.minor == c.minor && self.patch >= c.patch;
-                } else {
-                    return self.major == 0 && self.minor == 0 && self.patch == c.patch;
-                }
+            && let Some(c) = SemVer::parse(rest)
+        {
+            // ^1.2.3 means >=1.2.3 <2.0.0 (for major > 0)
+            // ^0.2.3 means >=0.2.3 <0.3.0 (for major = 0)
+            if c.major > 0 {
+                return self.major == c.major
+                    && (self.minor > c.minor || (self.minor == c.minor && self.patch >= c.patch));
+            } else if c.minor > 0 {
+                return self.major == 0 && self.minor == c.minor && self.patch >= c.patch;
+            } else {
+                return self.major == 0 && self.minor == 0 && self.patch == c.patch;
             }
+        }
 
         if let Some(rest) = trimmed.strip_prefix('~')
-            && let Some(c) = SemVer::parse(rest) {
-                // ~1.2.3 means >=1.2.3 <1.3.0
-                return self.major == c.major && self.minor == c.minor && self.patch >= c.patch;
-            }
+            && let Some(c) = SemVer::parse(rest)
+        {
+            // ~1.2.3 means >=1.2.3 <1.3.0
+            return self.major == c.major && self.minor == c.minor && self.patch >= c.patch;
+        }
 
         if let Some(rest) = trimmed.strip_prefix(">=")
-            && let Some(c) = SemVer::parse(rest) {
-                return self.cmp_tuple() >= c.cmp_tuple();
-            }
+            && let Some(c) = SemVer::parse(rest)
+        {
+            return self.cmp_tuple() >= c.cmp_tuple();
+        }
 
         if let Some(rest) = trimmed.strip_prefix('>')
-            && let Some(c) = SemVer::parse(rest) {
-                return self.cmp_tuple() > c.cmp_tuple();
-            }
+            && let Some(c) = SemVer::parse(rest)
+        {
+            return self.cmp_tuple() > c.cmp_tuple();
+        }
 
         if let Some(rest) = trimmed.strip_prefix("<=")
-            && let Some(c) = SemVer::parse(rest) {
-                return self.cmp_tuple() <= c.cmp_tuple();
-            }
+            && let Some(c) = SemVer::parse(rest)
+        {
+            return self.cmp_tuple() <= c.cmp_tuple();
+        }
 
         if let Some(rest) = trimmed.strip_prefix('<')
-            && let Some(c) = SemVer::parse(rest) {
-                return self.cmp_tuple() < c.cmp_tuple();
-            }
+            && let Some(c) = SemVer::parse(rest)
+        {
+            return self.cmp_tuple() < c.cmp_tuple();
+        }
 
         // Exact match
         if let Some(c) = SemVer::parse(trimmed) {
@@ -310,14 +316,15 @@ pub fn detect_workspaces(vfs: &Vfs) -> Vec<WorkspacePackage> {
             for entry in entries {
                 let pkg_path = format!("/{base_dir}/{entry}/package.json");
                 if let Ok(bytes) = vfs.read(&pkg_path)
-                    && let Ok(pkg) = serde_json::from_slice::<PackageJson>(bytes) {
-                        packages.push(WorkspacePackage {
-                            name: pkg.name.unwrap_or_else(|| entry.clone()),
-                            path: format!("/{base_dir}/{entry}"),
-                            version: pkg.version.unwrap_or_else(|| "0.0.0".into()),
-                            dependencies: pkg.dependencies,
-                        });
-                    }
+                    && let Ok(pkg) = serde_json::from_slice::<PackageJson>(bytes)
+                {
+                    packages.push(WorkspacePackage {
+                        name: pkg.name.unwrap_or_else(|| entry.clone()),
+                        path: format!("/{base_dir}/{entry}"),
+                        version: pkg.version.unwrap_or_else(|| "0.0.0".into()),
+                        dependencies: pkg.dependencies,
+                    });
+                }
             }
         }
     }

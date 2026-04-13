@@ -220,12 +220,13 @@ impl JsxTransformer {
             if c == '<' && !in_string && !in_template {
                 // Check if this is JSX (not comparison or type assertion)
                 if let Some(&next) = chars.peek()
-                    && (next.is_alphabetic() || next == '_' || next == '>') {
-                        // This looks like JSX
-                        let jsx = self.parse_jsx_element(&mut chars)?;
-                        result.push_str(&jsx);
-                        continue;
-                    }
+                    && (next.is_alphabetic() || next == '_' || next == '>')
+                {
+                    // This looks like JSX
+                    let jsx = self.parse_jsx_element(&mut chars)?;
+                    result.push_str(&jsx);
+                    continue;
+                }
             }
 
             result.push(c);
@@ -959,9 +960,10 @@ fn extract_deps(code: &str) -> Vec<String> {
         if let Some(pos) = line.find("require(") {
             let after = &line[pos + 8..];
             if let Some(dep) = extract_string(after)
-                && (dep.starts_with('.') || dep.starts_with('/')) {
-                    deps.push(dep);
-                }
+                && (dep.starts_with('.') || dep.starts_with('/'))
+            {
+                deps.push(dep);
+            }
         }
     }
     deps
@@ -1031,15 +1033,17 @@ fn parse_imports(source: &str) -> Vec<ImportInfo> {
     let mut imports = Vec::new();
     for line in source.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("import ") && trimmed.contains(" from ")
-            && let Some(from_idx) = trimmed.rfind(" from ") {
-                let rest = trimmed[from_idx + " from ".len()..].trim();
-                let source_mod = rest.trim_matches(';').trim_matches('"').trim_matches('\'');
+        if trimmed.starts_with("import ")
+            && trimmed.contains(" from ")
+            && let Some(from_idx) = trimmed.rfind(" from ")
+        {
+            let rest = trimmed[from_idx + " from ".len()..].trim();
+            let source_mod = rest.trim_matches(';').trim_matches('"').trim_matches('\'');
 
-                imports.push(ImportInfo {
-                    source: source_mod.to_string(),
-                });
-            }
+            imports.push(ImportInfo {
+                source: source_mod.to_string(),
+            });
+        }
     }
     imports
 }

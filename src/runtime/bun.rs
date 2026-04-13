@@ -129,18 +129,19 @@ fn spawn_bun(
 
         // 2. Fallback: boa_engine si el archivo está en VFS
         if !file_path.is_empty()
-            && let Ok(source) = vfs.read(file_path) {
-                let src = String::from_utf8_lossy(source).into_owned();
-                let is_ts = file_path.ends_with(".ts") || file_path.ends_with(".tsx");
-                let out = super::js_engine::run(&src, is_ts);
-                let pid = pm.spawn("bun", cmd.args.clone());
-                pm.exit(pid, out.exit_code)?;
-                return Ok(ExecOutput {
-                    stdout: out.stdout.into_bytes(),
-                    stderr: out.stderr.into_bytes(),
-                    exit_code: out.exit_code,
-                });
-            }
+            && let Ok(source) = vfs.read(file_path)
+        {
+            let src = String::from_utf8_lossy(source).into_owned();
+            let is_ts = file_path.ends_with(".ts") || file_path.ends_with(".tsx");
+            let out = super::js_engine::run(&src, is_ts);
+            let pid = pm.spawn("bun", cmd.args.clone());
+            pm.exit(pid, out.exit_code)?;
+            return Ok(ExecOutput {
+                stdout: out.stdout.into_bytes(),
+                stderr: out.stderr.into_bytes(),
+                exit_code: out.exit_code,
+            });
+        }
     }
 
     // WASM: js_sys::eval vía el motor del browser

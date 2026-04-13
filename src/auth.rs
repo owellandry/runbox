@@ -334,9 +334,10 @@ impl UserDataExport {
         let mut files = HashMap::new();
         for path in vfs.all_file_paths() {
             if let Ok(bytes) = vfs.read(&path)
-                && let Ok(text) = std::str::from_utf8(bytes) {
-                    files.insert(path, text.to_string());
-                }
+                && let Ok(text) = std::str::from_utf8(bytes)
+            {
+                files.insert(path, text.to_string());
+            }
         }
 
         Self {

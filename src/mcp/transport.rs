@@ -126,9 +126,10 @@ impl SseTransport {
     fn read_sse_event(stream: &str) -> Option<String> {
         for line in stream.lines() {
             if let Some(data) = line.strip_prefix("data: ")
-                && !data.trim().is_empty() {
-                    return Some(data.trim().to_string());
-                }
+                && !data.trim().is_empty()
+            {
+                return Some(data.trim().to_string());
+            }
         }
         None
     }

@@ -127,7 +127,6 @@ pub enum PermissionGrant {
     Specific(Vec<String>),
 }
 
-
 impl Default for DenoPermissions {
     fn default() -> Self {
         Self {
@@ -244,9 +243,10 @@ impl ImportMap {
         if let Some(ref_path) = referrer {
             for (scope, mappings) in &self.scopes {
                 if ref_path.starts_with(scope.as_str())
-                    && let Some(resolved) = Self::try_resolve(specifier, mappings) {
-                        return Some(resolved);
-                    }
+                    && let Some(resolved) = Self::try_resolve(specifier, mappings)
+                {
+                    return Some(resolved);
+                }
             }
         }
 
@@ -546,14 +546,14 @@ fn check_deno_imports(vfs: &Vfs) -> bool {
     for path in paths {
         if (path.ends_with(".ts") || path.ends_with(".tsx") || path.ends_with(".js"))
             && let Ok(bytes) = vfs.read(&path)
-                && let Ok(text) = std::str::from_utf8(bytes)
-                    && (text.contains("https://deno.land/")
-                        || text.contains("jsr:")
-                        || text.contains("npm:")
-                        || text.contains("https://esm.sh/"))
-                    {
-                        return true;
-                    }
+            && let Ok(text) = std::str::from_utf8(bytes)
+            && (text.contains("https://deno.land/")
+                || text.contains("jsr:")
+                || text.contains("npm:")
+                || text.contains("https://esm.sh/"))
+        {
+            return true;
+        }
     }
     false
 }
@@ -564,10 +564,11 @@ fn load_import_map(vfs: &Vfs, config: Option<&DenoConfig>) -> ImportMap {
         // Try external import map file
         if let Some(ref path) = cfg.import_map
             && let Ok(bytes) = vfs.read(path)
-                && let Ok(text) = std::str::from_utf8(bytes)
-                    && let Ok(imap) = ImportMap::from_json(text) {
-                        return imap;
-                    }
+            && let Ok(text) = std::str::from_utf8(bytes)
+            && let Ok(imap) = ImportMap::from_json(text)
+        {
+            return imap;
+        }
 
         // Use embedded imports
         if !cfg.imports.is_empty() {

@@ -39,7 +39,6 @@ impl SessionPermission {
     }
 }
 
-
 /// Acciones que un usuario puede realizar en una sesión.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

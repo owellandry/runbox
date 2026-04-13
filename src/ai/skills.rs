@@ -156,9 +156,10 @@ fn search_recursive(vfs: &Vfs, path: &str, query: &str, ext: Option<&str>, out: 
         if let Ok(bytes) = vfs.read(&full_path) {
             // Es un archivo
             if let Some(ext_filter) = ext
-                && !entry.ends_with(ext_filter) {
-                    continue;
-                }
+                && !entry.ends_with(ext_filter)
+            {
+                continue;
+            }
             let text = String::from_utf8_lossy(bytes);
             for (i, line) in text.lines().enumerate() {
                 if line.contains(query) {

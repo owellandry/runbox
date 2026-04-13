@@ -264,8 +264,7 @@ pub struct NetworkEvent {
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PerformanceTimeline {
     pub events: Vec<PerformanceEntry>,
 }
@@ -289,7 +288,6 @@ pub struct InspectorSession {
     pub network_events: Vec<NetworkEvent>,
     pub timeline: PerformanceTimeline,
 }
-
 
 impl InspectorSession {
     pub fn new() -> Self {

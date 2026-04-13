@@ -668,7 +668,8 @@ impl McpServer {
             "explain_project" => {
                 let tree_str = self
                     .tool_list_dir(&json!({"path": "/"}))
-                    .content.first()
+                    .content
+                    .first()
                     .map(|c| {
                         if let crate::mcp::protocol::McpContent::Text { text } = c {
                             text.clone()
@@ -752,9 +753,10 @@ fn search_recursive(vfs: &Vfs, path: &str, query: &str, ext: Option<&str>, out: 
         };
         if let Ok(bytes) = vfs.read(&full) {
             if let Some(e) = ext
-                && !entry.ends_with(e) {
-                    continue;
-                }
+                && !entry.ends_with(e)
+            {
+                continue;
+            }
             let text = String::from_utf8_lossy(bytes);
             for (i, line) in text.lines().enumerate() {
                 if line.contains(query) {

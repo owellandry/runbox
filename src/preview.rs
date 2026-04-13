@@ -1070,13 +1070,14 @@ fn extract_preview_path(url: &str, base_path: &str) -> String {
     // Strip base path prefix
     let normalized_base = normalize_base_path(base_path);
     if normalized_base != "/"
-        && let Some(rest) = path.strip_prefix(normalized_base.as_str()) {
-            path = if rest.is_empty() {
-                "/".to_string()
-            } else {
-                rest.to_string()
-            };
-        }
+        && let Some(rest) = path.strip_prefix(normalized_base.as_str())
+    {
+        path = if rest.is_empty() {
+            "/".to_string()
+        } else {
+            rest.to_string()
+        };
+    }
 
     // Default to /index.html for root
     if path == "/" {
