@@ -337,10 +337,13 @@ impl WsChannel {
                 self.add_viewer(viewer_id, now_ms, ViewerPermission::View);
                 None
             }
-            WsMessage::Ping { timestamp } => Some(WsMessage::Pong {
-                timestamp: *timestamp,
-                server_time: now_ms,
-            }),
+            WsMessage::Ping { timestamp } => {
+                self.last_ping_at = now_ms;
+                Some(WsMessage::Pong {
+                    timestamp: *timestamp,
+                    server_time: now_ms,
+                })
+            }
             WsMessage::Pong { timestamp, .. } => {
                 let latency = now_ms.saturating_sub(*timestamp);
                 self.latency_history.push(latency);
@@ -507,6 +510,8 @@ impl WsChannel {
             "pending_messages": self.pending_messages.len(),
             "avg_latency_ms": self.avg_latency_ms(),
             "reconnect_attempt": self.reconnect_attempt,
+            "last_message_at": self.last_message_at,
+            "last_ping_at": self.last_ping_at,
         })
         .to_string()
     }

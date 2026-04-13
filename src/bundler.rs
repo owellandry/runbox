@@ -576,8 +576,6 @@ pub struct ModuleGraph {
 
 #[derive(Debug, Clone)]
 struct ModuleNode {
-    path: String,
-    code: String,
     imports: Vec<ImportInfo>,
     exports: Vec<String>,
     used_exports: HashSet<String>,
@@ -587,8 +585,6 @@ struct ModuleNode {
 #[derive(Debug, Clone)]
 struct ImportInfo {
     source: String,
-    specifiers: Vec<String>,
-    is_namespace: bool,
 }
 
 impl ModuleGraph {
@@ -605,8 +601,6 @@ impl ModuleGraph {
         self.modules.insert(
             path.to_string(),
             ModuleNode {
-                path: path.to_string(),
-                code: code.to_string(),
                 imports,
                 exports,
                 used_exports: HashSet::new(),
@@ -1031,26 +1025,11 @@ fn parse_imports(source: &str) -> Vec<ImportInfo> {
         let trimmed = line.trim();
         if trimmed.starts_with("import ") && trimmed.contains(" from ") {
             if let Some(from_idx) = trimmed.rfind(" from ") {
-                let binding = trimmed["import ".len()..from_idx].trim();
                 let rest = trimmed[from_idx + " from ".len()..].trim();
                 let source_mod = rest.trim_matches(';').trim_matches('"').trim_matches('\'');
 
-                let is_namespace = binding.starts_with("* as ");
-                let specifiers = if is_namespace {
-                    vec![binding["* as ".len()..].to_string()]
-                } else if binding.starts_with('{') && binding.ends_with('}') {
-                    binding[1..binding.len() - 1]
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect()
-                } else {
-                    vec![binding.to_string()]
-                };
-
                 imports.push(ImportInfo {
                     source: source_mod.to_string(),
-                    specifiers,
-                    is_namespace,
                 });
             }
         }
