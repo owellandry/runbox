@@ -207,10 +207,16 @@ impl RunboxInstance {
     /// Ejecuta una tool call del AI. `call_json` es { name, arguments }.
     /// Retorna JSON: { name, content, error }
     pub fn ai_dispatch(&mut self, call_json: &str) -> String {
-        use crate::ai::{skills::dispatch, tools::ToolCall};
+        use crate::ai::{skills::dispatch_with_preview, tools::ToolCall};
 
         let result = serde_json::from_str::<ToolCall>(call_json)
-            .map(|call| dispatch(&call, &mut self.vfs, &mut self.pm, &mut self.console));
+            .map(|call| dispatch_with_preview(
+                &call,
+                &mut self.vfs,
+                &mut self.pm,
+                &mut self.console,
+                Some(&mut self.preview),
+            ));
 
         match result {
             Ok(r) => serde_json::to_string(&r).unwrap_or_default(),
@@ -265,6 +271,19 @@ impl RunboxInstance {
             }
             SandboxCommand::Fullscreen { enable } => {
                 serde_json::json!({ "action": "fullscreen", "enable": enable }).to_string()
+            }
+            // Preview commands
+            SandboxCommand::StartPreview { config_json } => {
+                let config_str = config_json.as_deref().unwrap_or("{}");
+                self.preview_start(config_str, js_sys::Date::now() as u64)
+            }
+            SandboxCommand::StopPreview => self.preview_stop(),
+            SandboxCommand::SetPreviewDomain { domain } => {
+                self.preview_set_domain(&domain)
+            }
+            SandboxCommand::SharePreview => self.preview_share(),
+            SandboxCommand::SetPreviewMetadata { metadata_json } => {
+                self.preview_set_metadata(&metadata_json)
             }
             _ => serde_json::json!({ "error": "not implemented" }).to_string(),
         }
@@ -480,11 +499,13 @@ impl RunboxInstance {
     pub fn preview_set_domain(&mut self, domain: &str) -> String {
         match self.preview.set_domain(domain) {
             Ok(()) => {
-                let session = self.preview.current().unwrap();
+                let url = self.preview.current()
+                    .map(|s| s.base_url())
+                    .unwrap_or_default();
                 serde_json::json!({
                     "ok": true,
                     "domain": domain,
-                    "url": session.base_url(),
+                    "url": url,
                 }).to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
@@ -496,11 +517,13 @@ impl RunboxInstance {
     pub fn preview_share(&mut self) -> String {
         match self.preview.share() {
             Ok(url) => {
-                let session = self.preview.current().unwrap();
+                let session_id = self.preview.current()
+                    .map(|s| s.id.clone())
+                    .unwrap_or_default();
                 serde_json::json!({
                     "ok": true,
                     "share_url": url,
-                    "session_id": session.id,
+                    "session_id": session_id,
                 }).to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
