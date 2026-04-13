@@ -519,27 +519,63 @@ release/v0.x.0   ← ramas de release
 
 ## Estado Actual
 
-### v0.3.9 (actual)
+### Baseline y contexto
 
-**Completado:**
-- VFS virtual con tracking de cambios
-- Shell con 7 runtimes (bun, npm, pnpm, yarn, git, python, shell)
-- Motor JavaScript (boa_engine) con type stripping de TypeScript
-- Consola de logs con niveles y timestamps
-- Process manager con PID tracking
-- Hot reload inteligente (CSS inject, HMR, full reload)
-- Inspector DOM (activar, seleccionar, overlay, historial)
-- Terminal xterm.js con input/output bidireccional
-- Service Worker para intercepción de red
-- HTTP server simulado via `globalThis.__runbox_servers`
-- MCP Server con 13 tools, 3 prompts y resources dinámicos
-- AI Tools (13 tools) con soporte OpenAI, Anthropic y Gemini
-- **Sistema de Preview completo** (dominio custom, CORS, live-reload, OG metadata, compartir URLs)
-- 60 tests unitarios y de integración
-- Documentación completa (Architecture, API Reference, Development, MCP Guide)
-- AGENT_SKILL.md exhaustivo para agentes AI
+- **Release estable:** `v0.3.9`
+- **Estado de `master`:** incluye avances post-release de la PR #4
+  (merge `b466ba0`) y fixes relacionados.
+- **Commits clave revisados:** `b02079d`, `7a18399`, `8994e36`, `b466ba0`.
 
-**Próximo:** Fase 1 — Preview Avanzado y Colaboración (v0.4.0)
+### Escala de nivel
+
+- **L4 (Completado):** implementado, con tests y uso funcional en flujo real.
+- **L3 (Avanzado):** implementado y probado a nivel de módulo; falta hardening/integración total.
+- **L2 (Parcial):** base técnica implementada, pero con cobertura funcional incompleta.
+- **L1 (Inicial):** prototipo o piezas aisladas sin flujo completo.
+- **L0 (Pendiente):** sin implementación.
+
+### Estado de tareas del roadmap (actualizado)
+
+| Fase | Tarea roadmap | Estado | Nivel | Implementado |
+|---|---|---|---|---|
+| 1.3 | Dominio personalizado + share URL + CORS | En producción de `master` | L4 | `preview.rs` (config domain, `share_token`, CORS preflight/headers) |
+| 1.4 | HMR real React/Vue/Svelte | En progreso | L2 | detección de framework y fallback de recarga |
+| 1.4 | Inyección CSS sin parpadeo | Avanzado | L3 | `inject_css` + utilidades de hot reload |
+| 1.4 | Preservación de estado en reload | En progreso | L2 | estructuras para preservación/estado en `hotreload.rs` |
+| 1.4 | Overlay de errores de compilación | Avanzado | L3 | `CompilationError` + `to_overlay_html/script` |
+| 1.4 | Indicador visual de reload | Avanzado | L3 | `ReloadProgress` + script de barra de progreso |
+| 1.5 | Meta tags para LinkedIn/Discord/Slack/WhatsApp | Implementado | L4 | `PreviewMetadata::platform_meta_tags` |
+| 1.5 | Preview cards dinámicas (OG SVG / data URI) | Implementado | L4 | `generate_og_svg`, `og_image_data_uri` |
+| 1.5 | Screenshot automático para `og:image` | Pendiente | L0 | no hay pipeline de screenshot en backend core |
+| 2.3 | Caché de paquetes persistente | Avanzado | L3 | mejoras en `runtime/npm.rs` + tracking/cache |
+| 2.3 | Resolución de dependencias con semver | Avanzado | L3 | resolución y mejoras de lockfile |
+| 2.3 | Lockfile compatible npm/yarn/pnpm | Avanzado | L3 | `generate_lockfile_v2`, soporte v3/npm y formatos yarn/pnpm |
+| 2.3 | Workspaces (monorepo) | Implementado | L4 | `detect_workspaces` + tests |
+| 2.4 | Polyfills JS (async/fetch/timers/web APIs/node builtins) | Avanzado | L3 | `PolyfillGenerator` en `runtime/js_engine.rs` |
+| 3.1 | VFS: metadata, hashing, glob, compresión, stats | Avanzado | L3 | mejoras en `vfs.rs` |
+| 3.1 | VFS B-tree/lazy-load/streaming binario | Pendiente | L0 | aún no implementado como arquitectura principal |
+| 3.2 | Caché de compilación WASM + profiling + memory tracking | Avanzado | L3 | `wasm_opt.rs` (`CompilationCache`, `WasmProfiler`, `MemoryTracker`) |
+| 3.3 | Cache HTTP (`Cache-Control`, `ETag`, `If-None-Match`) | Implementado | L4 | `cache.rs` (`HttpCache`) |
+| 3.3 | CDN URLs + compresión gzip | Implementado | L4 | `CdnProvider`, `compress_gzip`, utilidades MIME |
+| 3.3 | Precarga predictiva por imports | Avanzado | L3 | `analyze_imports` (base lista para integración adicional) |
+| 4.1/4.2 | Security manager (limits, policy red, CSP, sanitize, rate-limit, audit log) | Avanzado | L3 | `security.rs` + batería de tests unitarios |
+| 4.2/4.3 | API keys/OAuth2/cifrado/GDPR/no-tracking formal | Pendiente | L0 | no integrado aún al flujo principal |
+
+### Resumen de avance por fase (estimado)
+
+| Fase | Avance estimado | Estado general |
+|---|---:|---|
+| Fase 1 (v0.4.0) | 70% | Preview muy avanzado; colaboración en tiempo real aún pendiente |
+| Fase 2 (v0.5.0) | 45% | Base sólida en npm/js engine; faltan runtime Deno y bundler completo |
+| Fase 3 (v0.6.0) | 50% | Buen avance en cache/WASM/VFS; faltan cambios estructurales grandes |
+| Fase 4 (v0.7.0) | 35% | Seguridad base implementada; falta enforcement total y capa auth/privacy |
+| Fases 5-7 | <15% | Mayormente planificadas |
+
+### Próximo foco recomendado
+
+1. Cerrar Fase 1 con colaboración real-time (WebSocket + sesiones).
+2. Llevar capacidades L3 de seguridad/cache/wasm_opt a integración end-to-end.
+3. Definir release target para `v0.4.0` con criterios medibles de salida.
 
 ---
 
@@ -547,4 +583,4 @@ release/v0.x.0   ← ramas de release
 > y pueden cambiar según feedback de la comunidad y prioridades del proyecto.*
 >
 > **Mantenido por:** Equipo RunBox
-> **Última actualización:** Abril 2026
+> **Última actualización:** 2026-04-13
