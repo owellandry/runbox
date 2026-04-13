@@ -146,7 +146,7 @@ impl CompilationCache {
     pub fn is_cached(&self, module_name: &str, source_hash: &str) -> bool {
         self.entries
             .get(module_name)
-            .map_or(false, |e| e.source_hash == source_hash)
+            .is_some_and(|e| e.source_hash == source_hash)
     }
 
     /// Marca un módulo como almacenado en IndexedDB.

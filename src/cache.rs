@@ -85,7 +85,7 @@ impl HttpCache {
     /// Busca una entrada en el cache. Retorna None si no existe o expiró.
     pub fn get(&mut self, url: &str, now_ms: u64) -> Option<&CacheEntry> {
         // Check if exists and not expired
-        let expired = self.entries.get(url).map_or(true, |entry| {
+        let expired = self.entries.get(url).is_none_or(|entry| {
             entry.expires_at > 0 && now_ms > entry.expires_at
         });
 
@@ -131,11 +131,9 @@ impl HttpCache {
         if let Some(cc) = headers
             .get("cache-control")
             .or_else(|| headers.get("Cache-Control"))
-        {
-            if cc.contains("no-store") {
+            && cc.contains("no-store") {
                 return; // Don't cache
             }
-        }
 
         // Evict if needed
         while self.current_size + size > self.max_size && !self.entries.is_empty() {
@@ -173,7 +171,7 @@ impl HttpCache {
         self.entries
             .get(url)
             .and_then(|e| e.etag.as_ref())
-            .map_or(false, |cached_etag| cached_etag == server_etag)
+            .is_some_and(|cached_etag| cached_etag == server_etag)
     }
 
     /// Retorna el ETag almacenado para hacer If-None-Match requests.
@@ -189,12 +187,11 @@ impl HttpCache {
             .min_by_key(|(_, e)| e.hit_count)
             .map(|(k, _)| k.clone());
 
-        if let Some(key) = lru_key {
-            if let Some(entry) = self.entries.remove(&key) {
+        if let Some(key) = lru_key
+            && let Some(entry) = self.entries.remove(&key) {
                 self.current_size = self.current_size.saturating_sub(entry.body.len());
                 self.stats.evictions += 1;
             }
-        }
     }
 
     /// Limpia el cache.
@@ -319,11 +316,10 @@ pub fn analyze_imports(source: &str) -> Vec<String> {
         // import X from 'package'
         // import { X } from 'package'
         // import 'package'
-        if trimmed.starts_with("import ") || trimmed.starts_with("import\t") {
-            if let Some(pkg) = extract_import_source(trimmed) {
+        if (trimmed.starts_with("import ") || trimmed.starts_with("import\t"))
+            && let Some(pkg) = extract_import_source(trimmed) {
                 imports.push(pkg);
             }
-        }
 
         // require('package')
         if let Some(start) = trimmed.find("require(") {
@@ -363,14 +359,14 @@ fn extract_import_source(line: &str) -> Option<String> {
 
 fn extract_string_literal(s: &str) -> Option<String> {
     let s = s.trim();
-    if s.starts_with('\'') {
-        let end = s[1..].find('\'')?;
+    if let Some(stripped) = s.strip_prefix('\'') {
+        let end = stripped.find('\'')?;
         Some(s[1..1 + end].to_string())
-    } else if s.starts_with('"') {
-        let end = s[1..].find('"')?;
+    } else if let Some(stripped) = s.strip_prefix('"') {
+        let end = stripped.find('"')?;
         Some(s[1..1 + end].to_string())
-    } else if s.starts_with('`') {
-        let end = s[1..].find('`')?;
+    } else if let Some(stripped) = s.strip_prefix('`') {
+        let end = stripped.find('`')?;
         Some(s[1..1 + end].to_string())
     } else {
         None

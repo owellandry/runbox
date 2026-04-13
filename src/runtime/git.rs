@@ -799,11 +799,11 @@ fn git_push(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
         match http_git_push(&url, &branch, vfs, &creds) {
             Ok(msg) => {
                 pm.exit(pid, 0)?;
-                return Ok(ok_out(msg));
+                Ok(ok_out(msg))
             }
             Err(e) => {
                 pm.exit(pid, 1)?;
-                return Ok(err_out(format!("error: failed to push: {e}")));
+                Ok(err_out(format!("error: failed to push: {e}")))
             }
         }
     }
@@ -1026,7 +1026,7 @@ fn http_git_push(
         .map_err(|e| crate::error::RunboxError::Runtime(format!("push failed: {e}")))?;
 
     let status = resp.status().as_u16();
-    if status >= 200 && status < 300 {
+    if (200..300).contains(&status) {
         Ok(format!(
             "To {url}\n   {old}..{new}  {branch} -> {branch}\n",
             old = &remote_sha[..7.min(remote_sha.len())],

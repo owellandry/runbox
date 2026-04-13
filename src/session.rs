@@ -14,8 +14,10 @@ use std::collections::HashMap;
 /// Nivel de permisos para una sesión compartida.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum SessionPermission {
     /// Solo lectura — puede ver el preview.
+    #[default]
     View,
     /// Puede interactuar con el terminal.
     Interact,
@@ -37,11 +39,6 @@ impl SessionPermission {
     }
 }
 
-impl Default for SessionPermission {
-    fn default() -> Self {
-        SessionPermission::View
-    }
-}
 
 /// Acciones que un usuario puede realizar en una sesión.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

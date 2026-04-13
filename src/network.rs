@@ -174,11 +174,10 @@ pub fn handle_sw_request(req: &SwRequest, vfs: &crate::vfs::Vfs) -> SwResponse {
     }
 
     // Intentar con index.html para SPA routing
-    if !path.contains('.') {
-        if let Ok(bytes) = vfs.read("/index.html") {
+    if !path.contains('.')
+        && let Ok(bytes) = vfs.read("/index.html") {
             return SwResponse::ok(&req.id, String::from_utf8_lossy(bytes), "text/html");
         }
-    }
 
     SwResponse::not_found(&req.id)
 }

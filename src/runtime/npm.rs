@@ -99,8 +99,8 @@ impl PackageCache {
     }
 
     /// Check if a package@version is in cache.
-    pub fn has(&self, name: &str, version: &str) -> bool {
-        self.entries.get(&cache_key(name, version)).is_some()
+    pub fn contains(&self, name: &str, version: &str) -> bool {
+        self.entries.contains_key(&cache_key(name, version))
     }
 
     /// Record a cached package.
@@ -109,18 +109,15 @@ impl PackageCache {
         self.total_size += entry.size_bytes;
 
         // Evict oldest if at capacity
-        if self.entries.len() >= self.max_entries {
-            if let Some(oldest_key) = self
+        if self.entries.len() >= self.max_entries
+            && let Some(oldest_key) = self
                 .entries
                 .iter()
                 .min_by_key(|(_, e)| e.cached_at)
                 .map(|(k, _)| k.clone())
-            {
-                if let Some(removed) = self.entries.remove(&oldest_key) {
+                && let Some(removed) = self.entries.remove(&oldest_key) {
                     self.total_size = self.total_size.saturating_sub(removed.size_bytes);
                 }
-            }
-        }
 
         self.entries.insert(key, entry);
     }
@@ -200,8 +197,8 @@ impl SemVer {
             return true;
         }
 
-        if let Some(rest) = trimmed.strip_prefix('^') {
-            if let Some(c) = SemVer::parse(rest) {
+        if let Some(rest) = trimmed.strip_prefix('^')
+            && let Some(c) = SemVer::parse(rest) {
                 // ^1.2.3 means >=1.2.3 <2.0.0 (for major > 0)
                 // ^0.2.3 means >=0.2.3 <0.3.0 (for major = 0)
                 if c.major > 0 {
@@ -214,38 +211,32 @@ impl SemVer {
                     return self.major == 0 && self.minor == 0 && self.patch == c.patch;
                 }
             }
-        }
 
-        if let Some(rest) = trimmed.strip_prefix('~') {
-            if let Some(c) = SemVer::parse(rest) {
+        if let Some(rest) = trimmed.strip_prefix('~')
+            && let Some(c) = SemVer::parse(rest) {
                 // ~1.2.3 means >=1.2.3 <1.3.0
                 return self.major == c.major && self.minor == c.minor && self.patch >= c.patch;
             }
-        }
 
-        if let Some(rest) = trimmed.strip_prefix(">=") {
-            if let Some(c) = SemVer::parse(rest) {
+        if let Some(rest) = trimmed.strip_prefix(">=")
+            && let Some(c) = SemVer::parse(rest) {
                 return self.cmp_tuple() >= c.cmp_tuple();
             }
-        }
 
-        if let Some(rest) = trimmed.strip_prefix('>') {
-            if let Some(c) = SemVer::parse(rest) {
+        if let Some(rest) = trimmed.strip_prefix('>')
+            && let Some(c) = SemVer::parse(rest) {
                 return self.cmp_tuple() > c.cmp_tuple();
             }
-        }
 
-        if let Some(rest) = trimmed.strip_prefix("<=") {
-            if let Some(c) = SemVer::parse(rest) {
+        if let Some(rest) = trimmed.strip_prefix("<=")
+            && let Some(c) = SemVer::parse(rest) {
                 return self.cmp_tuple() <= c.cmp_tuple();
             }
-        }
 
-        if let Some(rest) = trimmed.strip_prefix('<') {
-            if let Some(c) = SemVer::parse(rest) {
+        if let Some(rest) = trimmed.strip_prefix('<')
+            && let Some(c) = SemVer::parse(rest) {
                 return self.cmp_tuple() < c.cmp_tuple();
             }
-        }
 
         // Exact match
         if let Some(c) = SemVer::parse(trimmed) {
@@ -258,11 +249,13 @@ impl SemVer {
     fn cmp_tuple(&self) -> (u32, u32, u32) {
         (self.major, self.minor, self.patch)
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for SemVer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.pre {
-            Some(pre) => format!("{}.{}.{}-{pre}", self.major, self.minor, self.patch),
-            None => format!("{}.{}.{}", self.major, self.minor, self.patch),
+            Some(pre) => write!(f, "{}.{}.{}-{pre}", self.major, self.minor, self.patch),
+            None => write!(f, "{}.{}.{}", self.major, self.minor, self.patch),
         }
     }
 }
@@ -316,8 +309,8 @@ pub fn detect_workspaces(vfs: &Vfs) -> Vec<WorkspacePackage> {
         if let Ok(entries) = vfs.list(&format!("/{base_dir}")) {
             for entry in entries {
                 let pkg_path = format!("/{base_dir}/{entry}/package.json");
-                if let Ok(bytes) = vfs.read(&pkg_path) {
-                    if let Ok(pkg) = serde_json::from_slice::<PackageJson>(bytes) {
+                if let Ok(bytes) = vfs.read(&pkg_path)
+                    && let Ok(pkg) = serde_json::from_slice::<PackageJson>(bytes) {
                         packages.push(WorkspacePackage {
                             name: pkg.name.unwrap_or_else(|| entry.clone()),
                             path: format!("/{base_dir}/{entry}"),
@@ -325,7 +318,6 @@ pub fn detect_workspaces(vfs: &Vfs) -> Vec<WorkspacePackage> {
                             dependencies: pkg.dependencies,
                         });
                     }
-                }
             }
         }
     }
@@ -1118,17 +1110,20 @@ fn ok_out(text: impl Into<String>) -> ExecOutput {
 /// Parsea "react@^18.2.0" → ("react", "^18.2.0")
 fn parse_package_spec(spec: &str, exact: bool) -> (String, String) {
     // @scope/pkg@version — need to skip first char for scoped packages
-    let (name, ver) = if spec.starts_with('@') {
+    let (name, ver) = if let Some(stripped) = spec.strip_prefix('@') {
         // Scoped package: @scope/pkg@version
-        if let Some(pos) = spec[1..].find('@') {
-            (&spec[..pos + 1], &spec[pos + 2..])
+        if let Some(pos) = stripped.find('@') {
+            (
+                format!("@{}", &stripped[..pos]),
+                stripped[pos + 1..].to_string(),
+            )
         } else {
-            (spec, "latest")
+            (spec.to_string(), "latest".to_string())
         }
     } else if let Some(pos) = spec.find('@') {
-        (&spec[..pos], &spec[pos + 1..])
+        (spec[..pos].to_string(), spec[pos + 1..].to_string())
     } else {
-        (spec, "latest")
+        (spec.to_string(), "latest".to_string())
     };
 
     let version_str = if ver == "latest" {
@@ -1144,7 +1139,7 @@ fn parse_package_spec(spec: &str, exact: bool) -> (String, String) {
         format!("^{ver}")
     };
 
-    (name.to_string(), version_str)
+    (name, version_str)
 }
 
 #[cfg(test)]
@@ -1238,7 +1233,7 @@ mod tests {
     #[test]
     fn package_cache_basic() {
         let mut cache = PackageCache::new(100);
-        assert!(!cache.has("react", "18.2.0"));
+        assert!(!cache.contains("react", "18.2.0"));
 
         cache.record(PackageCacheEntry {
             name: "react".into(),
@@ -1250,11 +1245,11 @@ mod tests {
             dep_count: 2,
         });
 
-        assert!(cache.has("react", "18.2.0"));
-        assert!(!cache.has("react", "17.0.0"));
+        assert!(cache.contains("react", "18.2.0"));
+        assert!(!cache.contains("react", "17.0.0"));
 
         cache.remove("react", "18.2.0");
-        assert!(!cache.has("react", "18.2.0"));
+        assert!(!cache.contains("react", "18.2.0"));
     }
 
     #[test]
@@ -1272,8 +1267,8 @@ mod tests {
             });
         }
         // Should have evicted the oldest (pkg0)
-        assert!(!cache.has("pkg0", "1.0.0"));
-        assert!(cache.has("pkg2", "1.0.0"));
+        assert!(!cache.contains("pkg0", "1.0.0"));
+        assert!(cache.contains("pkg2", "1.0.0"));
     }
 
     #[test]

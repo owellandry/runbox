@@ -103,12 +103,11 @@ impl Plugin for PrettierPlugin {
     }
     fn on_file_change(&self, vfs: &mut Vfs, path: &str) -> Result<()> {
         // Pretend auto-formatting at save
-        if let Ok(content) = vfs.read_string(path) {
-            if path.ends_with(".js") || path.ends_with(".json") {
+        if let Ok(content) = vfs.read_string(path)
+            && (path.ends_with(".js") || path.ends_with(".json")) {
                 // In a real WASM runtime, we pass `content` to prettier format()
                 let _formatted = content;
             }
-        }
         Ok(())
     }
 }

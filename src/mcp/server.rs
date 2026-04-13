@@ -57,12 +57,9 @@ impl McpServer {
     }
 
     fn handle_notification(&mut self, method: &str, _params: &Value) {
-        match method {
-            "notifications/initialized" => {
-                self.initialized = true;
-                self.console.info("MCP client connected", "mcp/server");
-            }
-            _ => {}
+        if method == "notifications/initialized" {
+            self.initialized = true;
+            self.console.info("MCP client connected", "mcp/server");
         }
     }
 
@@ -671,8 +668,7 @@ impl McpServer {
             "explain_project" => {
                 let tree_str = self
                     .tool_list_dir(&json!({"path": "/"}))
-                    .content
-                    .get(0)
+                    .content.first()
                     .map(|c| {
                         if let crate::mcp::protocol::McpContent::Text { text } = c {
                             text.clone()
@@ -755,11 +751,10 @@ fn search_recursive(vfs: &Vfs, path: &str, query: &str, ext: Option<&str>, out: 
             format!("{path}/{entry}")
         };
         if let Ok(bytes) = vfs.read(&full) {
-            if let Some(e) = ext {
-                if !entry.ends_with(e) {
+            if let Some(e) = ext
+                && !entry.ends_with(e) {
                     continue;
                 }
-            }
             let text = String::from_utf8_lossy(bytes);
             for (i, line) in text.lines().enumerate() {
                 if line.contains(query) {

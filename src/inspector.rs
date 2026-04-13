@@ -265,6 +265,7 @@ pub struct NetworkEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct PerformanceTimeline {
     pub events: Vec<PerformanceEntry>,
 }
@@ -289,11 +290,6 @@ pub struct InspectorSession {
     pub timeline: PerformanceTimeline,
 }
 
-impl Default for PerformanceTimeline {
-    fn default() -> Self {
-        Self { events: Vec::new() }
-    }
-}
 
 impl InspectorSession {
     pub fn new() -> Self {

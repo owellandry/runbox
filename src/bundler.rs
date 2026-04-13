@@ -219,14 +219,13 @@ impl JsxTransformer {
             // Handle JSX opening tag: <Component or <div
             if c == '<' && !in_string && !in_template {
                 // Check if this is JSX (not comparison or type assertion)
-                if let Some(&next) = chars.peek() {
-                    if next.is_alphabetic() || next == '_' || next == '>' {
+                if let Some(&next) = chars.peek()
+                    && (next.is_alphabetic() || next == '_' || next == '>') {
                         // This looks like JSX
                         let jsx = self.parse_jsx_element(&mut chars)?;
                         result.push_str(&jsx);
                         continue;
                     }
-                }
             }
 
             result.push(c);
@@ -257,7 +256,7 @@ impl JsxTransformer {
         }
 
         // Determine if component (PascalCase) or HTML element
-        let is_component = tag_name.chars().next().map_or(false, |c| c.is_uppercase());
+        let is_component = tag_name.chars().next().is_some_and(|c| c.is_uppercase());
         let tag_expr = if is_component {
             tag_name.clone()
         } else {
@@ -270,7 +269,7 @@ impl JsxTransformer {
 
         loop {
             // Skip whitespace
-            while chars.peek().map_or(false, |c| c.is_whitespace()) {
+            while chars.peek().is_some_and(|c| c.is_whitespace()) {
                 chars.next();
             }
 
@@ -407,7 +406,7 @@ impl JsxTransformer {
                 Some(&'"') | Some(&'\'') => {
                     let quote = chars.next().unwrap();
                     let mut value = String::new();
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if c == quote {
                             break;
                         }
@@ -434,7 +433,7 @@ impl JsxTransformer {
         let mut expr = String::new();
         let mut depth = 1i32;
 
-        while let Some(c) = chars.next() {
+        for c in chars.by_ref() {
             match c {
                 '{' => {
                     depth += 1;
@@ -766,6 +765,7 @@ impl Bundler {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn collect_modules(
         &mut self,
         vfs: &crate::vfs::Vfs,
@@ -894,11 +894,8 @@ fn esm_to_cjs(source: &str) -> String {
                 let rest = after[from_idx + " from ".len()..].trim();
                 let module = rest.trim_matches(';').trim_matches('"').trim_matches('\'');
 
-                if binding.starts_with("* as ") {
-                    let name = &binding["* as ".len()..];
+                if let Some(name) = binding.strip_prefix("* as ") {
                     result.push_str(&format!("const {name} = require('{module}');\n"));
-                } else if binding.starts_with('{') {
-                    result.push_str(&format!("const {binding} = require('{module}');\n"));
                 } else {
                     result.push_str(&format!("const {binding} = require('{module}');\n"));
                 }
@@ -918,10 +915,10 @@ fn esm_to_cjs(source: &str) -> String {
         }
 
         // export default X
-        if trimmed.starts_with("export default ") {
+        if let Some(stripped) = trimmed.strip_prefix("export default ") {
             result.push_str(&format!(
                 "module.exports = module.exports.default = {};\n",
-                &trimmed["export default ".len()..]
+                stripped
             ));
             continue;
         }
@@ -961,11 +958,10 @@ fn extract_deps(code: &str) -> Vec<String> {
     for line in code.lines() {
         if let Some(pos) = line.find("require(") {
             let after = &line[pos + 8..];
-            if let Some(dep) = extract_string(after) {
-                if dep.starts_with('.') || dep.starts_with('/') {
+            if let Some(dep) = extract_string(after)
+                && (dep.starts_with('.') || dep.starts_with('/')) {
                     deps.push(dep);
                 }
-            }
         }
     }
     deps
@@ -973,11 +969,11 @@ fn extract_deps(code: &str) -> Vec<String> {
 
 fn extract_string(s: &str) -> Option<String> {
     let s = s.trim();
-    if s.starts_with('\'') {
-        let end = s[1..].find('\'')?;
+    if let Some(stripped) = s.strip_prefix('\'') {
+        let end = stripped.find('\'')?;
         Some(s[1..1 + end].to_string())
-    } else if s.starts_with('"') {
-        let end = s[1..].find('"')?;
+    } else if let Some(stripped) = s.strip_prefix('"') {
+        let end = stripped.find('"')?;
         Some(s[1..1 + end].to_string())
     } else {
         None
@@ -1035,8 +1031,8 @@ fn parse_imports(source: &str) -> Vec<ImportInfo> {
     let mut imports = Vec::new();
     for line in source.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("import ") && trimmed.contains(" from ") {
-            if let Some(from_idx) = trimmed.rfind(" from ") {
+        if trimmed.starts_with("import ") && trimmed.contains(" from ")
+            && let Some(from_idx) = trimmed.rfind(" from ") {
                 let rest = trimmed[from_idx + " from ".len()..].trim();
                 let source_mod = rest.trim_matches(';').trim_matches('"').trim_matches('\'');
 
@@ -1044,7 +1040,6 @@ fn parse_imports(source: &str) -> Vec<ImportInfo> {
                     source: source_mod.to_string(),
                 });
             }
-        }
     }
     imports
 }

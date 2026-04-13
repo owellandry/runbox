@@ -247,7 +247,7 @@ impl Vfs {
     pub fn has_changed(&self, path: &str, previous_hash: u64) -> bool {
         self.metadata
             .get(path)
-            .map_or(true, |m| m.content_hash != previous_hash)
+            .is_none_or(|m| m.content_hash != previous_hash)
     }
 
     // ── Glob Pattern Matching ────────────────────────────────────────────────

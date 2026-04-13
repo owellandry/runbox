@@ -70,11 +70,10 @@ impl Terminal {
 
     pub fn add_history(&mut self, cmd: String) {
         if !cmd.trim().is_empty() {
-            if let Some(last) = self.history.last() {
-                if last == &cmd {
+            if let Some(last) = self.history.last()
+                && last == &cmd {
                     return; // Evita duplicados consecutivos
                 }
-            }
             self.history.push(cmd);
         }
     }

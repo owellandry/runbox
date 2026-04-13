@@ -461,9 +461,7 @@ impl PreviewMetadata {
                     "<meta property=\"og:title\" content=\"{}\">\n",
                     html_escape(&self.title)
                 ));
-                tags.push_str(&format!(
-                    "<meta property=\"og:type\" content=\"website\">\n"
-                ));
+                tags.push_str("<meta property=\"og:type\" content=\"website\">\n");
                 tags.push_str(&format!(
                     "<meta property=\"og:url\" content=\"{}\">\n",
                     html_escape(canonical_url)
@@ -1071,15 +1069,14 @@ fn extract_preview_path(url: &str, base_path: &str) -> String {
 
     // Strip base path prefix
     let normalized_base = normalize_base_path(base_path);
-    if normalized_base != "/" {
-        if let Some(rest) = path.strip_prefix(normalized_base.as_str()) {
+    if normalized_base != "/"
+        && let Some(rest) = path.strip_prefix(normalized_base.as_str()) {
             path = if rest.is_empty() {
                 "/".to_string()
             } else {
                 rest.to_string()
             };
         }
-    }
 
     // Default to /index.html for root
     if path == "/" {
@@ -1133,7 +1130,7 @@ fn generate_share_token() -> String {
 
     let hash = hasher.finish();
     // Use base36 for a more compact, URL-friendly token
-    format!("{}", base36_encode(hash))
+    base36_encode(hash).to_string()
 }
 
 /// Simple base36 encoding of a u64.

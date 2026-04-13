@@ -357,7 +357,7 @@ pub fn sanitize_html(html: &str) -> String {
                 } else {
                     // Unquoted: ends at space or >
                     result[after_eq..]
-                        .find(|c: char| c == ' ' || c == '>')
+                        .find([' ', '>'])
                         .map(|p| after_eq + p)
                 };
                 match end {

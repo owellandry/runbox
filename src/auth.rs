@@ -333,11 +333,10 @@ impl UserDataExport {
     pub fn from_vfs(vfs: &crate::vfs::Vfs, now_ms: u64) -> Self {
         let mut files = HashMap::new();
         for path in vfs.all_file_paths() {
-            if let Ok(bytes) = vfs.read(&path) {
-                if let Ok(text) = std::str::from_utf8(bytes) {
+            if let Ok(bytes) = vfs.read(&path)
+                && let Ok(text) = std::str::from_utf8(bytes) {
                     files.insert(path, text.to_string());
                 }
-            }
         }
 
         Self {

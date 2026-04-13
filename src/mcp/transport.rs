@@ -125,11 +125,10 @@ impl SseTransport {
     /// Lee un evento SSE del stream. Retorna el JSON del campo `data:`.
     fn read_sse_event(stream: &str) -> Option<String> {
         for line in stream.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                if !data.trim().is_empty() {
+            if let Some(data) = line.strip_prefix("data: ")
+                && !data.trim().is_empty() {
                     return Some(data.trim().to_string());
                 }
-            }
         }
         None
     }
@@ -218,7 +217,7 @@ impl McpTransport for WebSocketTransport {
         use tungstenite::Message;
 
         self.stream
-            .send(Message::Text(message.to_string().into()))
+            .send(Message::Text(message.to_string()))
             .map_err(|e| RunboxError::Runtime(format!("WebSocket send {}: {e}", self.url)))?;
 
         loop {
@@ -267,7 +266,19 @@ impl McpTransport for WebSocketTransport {
 // ── In-process ────────────────────────────────────────────────────────────────
 
 pub struct InProcessTransport {
+    #[allow(clippy::type_complexity)]
     pub handler: Box<dyn FnMut(&str) -> Option<String> + Send>,
+}
+
+impl InProcessTransport {
+    pub fn new<F>(handler: F) -> Self
+    where
+        F: FnMut(&str) -> Option<String> + Send + 'static,
+    {
+        Self {
+            handler: Box::new(handler),
+        }
+    }
 }
 
 impl McpTransport for InProcessTransport {

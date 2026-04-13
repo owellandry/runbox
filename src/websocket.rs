@@ -213,8 +213,10 @@ pub struct ViewerInfo {
 /// Nivel de permisos de un viewer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ViewerPermission {
     /// Solo lectura — puede ver el preview.
+    #[default]
     View,
     /// Puede usar el terminal.
     Interact,
@@ -222,11 +224,6 @@ pub enum ViewerPermission {
     Edit,
 }
 
-impl Default for ViewerPermission {
-    fn default() -> Self {
-        ViewerPermission::View
-    }
-}
 
 impl WsChannel {
     pub fn new() -> Self {

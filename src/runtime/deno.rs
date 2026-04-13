@@ -116,8 +116,10 @@ pub struct DenoPermissions {
 /// Tipo de concesión de permiso.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[derive(Default)]
 pub enum PermissionGrant {
     /// Permiso denegado.
+    #[default]
     Denied,
     /// Permiso concedido para todo.
     All,
@@ -125,11 +127,6 @@ pub enum PermissionGrant {
     Specific(Vec<String>),
 }
 
-impl Default for PermissionGrant {
-    fn default() -> Self {
-        PermissionGrant::Denied
-    }
-}
 
 impl Default for DenoPermissions {
     fn default() -> Self {
@@ -246,11 +243,10 @@ impl ImportMap {
         // Check scoped mappings first
         if let Some(ref_path) = referrer {
             for (scope, mappings) in &self.scopes {
-                if ref_path.starts_with(scope.as_str()) {
-                    if let Some(resolved) = Self::try_resolve(specifier, mappings) {
+                if ref_path.starts_with(scope.as_str())
+                    && let Some(resolved) = Self::try_resolve(specifier, mappings) {
                         return Some(resolved);
                     }
-                }
             }
         }
 
@@ -512,7 +508,7 @@ fn strip_jsonc_comments(text: &str) -> String {
                 Some(&'/') => {
                     // Line comment — skip until newline
                     chars.next();
-                    while let Some(ch) = chars.next() {
+                    for ch in chars.by_ref() {
                         if ch == '\n' {
                             result.push('\n');
                             break;
@@ -548,19 +544,16 @@ fn strip_jsonc_comments(text: &str) -> String {
 fn check_deno_imports(vfs: &Vfs) -> bool {
     let paths = vfs.all_file_paths();
     for path in paths {
-        if path.ends_with(".ts") || path.ends_with(".tsx") || path.ends_with(".js") {
-            if let Ok(bytes) = vfs.read(&path) {
-                if let Ok(text) = std::str::from_utf8(bytes) {
-                    if text.contains("https://deno.land/")
+        if (path.ends_with(".ts") || path.ends_with(".tsx") || path.ends_with(".js"))
+            && let Ok(bytes) = vfs.read(&path)
+                && let Ok(text) = std::str::from_utf8(bytes)
+                    && (text.contains("https://deno.land/")
                         || text.contains("jsr:")
                         || text.contains("npm:")
-                        || text.contains("https://esm.sh/")
+                        || text.contains("https://esm.sh/"))
                     {
                         return true;
                     }
-                }
-            }
-        }
     }
     false
 }
@@ -569,15 +562,12 @@ fn check_deno_imports(vfs: &Vfs) -> bool {
 fn load_import_map(vfs: &Vfs, config: Option<&DenoConfig>) -> ImportMap {
     if let Some(cfg) = config {
         // Try external import map file
-        if let Some(ref path) = cfg.import_map {
-            if let Ok(bytes) = vfs.read(path) {
-                if let Ok(text) = std::str::from_utf8(bytes) {
-                    if let Ok(imap) = ImportMap::from_json(text) {
+        if let Some(ref path) = cfg.import_map
+            && let Ok(bytes) = vfs.read(path)
+                && let Ok(text) = std::str::from_utf8(bytes)
+                    && let Ok(imap) = ImportMap::from_json(text) {
                         return imap;
                     }
-                }
-            }
-        }
 
         // Use embedded imports
         if !cfg.imports.is_empty() {

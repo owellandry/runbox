@@ -155,11 +155,10 @@ fn search_recursive(vfs: &Vfs, path: &str, query: &str, ext: Option<&str>, out: 
 
         if let Ok(bytes) = vfs.read(&full_path) {
             // Es un archivo
-            if let Some(ext_filter) = ext {
-                if !entry.ends_with(ext_filter) {
+            if let Some(ext_filter) = ext
+                && !entry.ends_with(ext_filter) {
                     continue;
                 }
-            }
             let text = String::from_utf8_lossy(bytes);
             for (i, line) in text.lines().enumerate() {
                 if line.contains(query) {
@@ -305,7 +304,7 @@ fn skill_patch_file(call: &ToolCall, vfs: &mut Vfs) -> crate::error::Result<Valu
     let replacement = str_arg(&call.arguments, "replacement_content")?;
 
     let bytes = vfs.read(path)?;
-    let content = String::from_utf8_lossy(&bytes).to_string();
+    let content = String::from_utf8_lossy(bytes).to_string();
 
     if !content.contains(target) {
         return Err(RunboxError::Runtime(
@@ -354,7 +353,7 @@ fn skill_debug_error(call: &ToolCall, vfs: &Vfs) -> crate::error::Result<Value> 
     let file = call.arguments["related_file"].as_str().unwrap_or("/");
     let ctx = vfs
         .read(file)
-        .map(|b| String::from_utf8_lossy(&b).to_string())
+        .map(|b| String::from_utf8_lossy(b).to_string())
         .unwrap_or_default();
 
     Ok(json!({
