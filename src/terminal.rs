@@ -218,3 +218,58 @@ impl Default for Terminal {
 //   runbox.terminal_resize(xterm.cols, xterm.rows);
 // }).observe(document.getElementById('terminal'));
 // ```
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_terminal_history() {
+        let mut term = Terminal::new(100);
+        term.add_history("ls".into());
+        term.add_history("ls".into()); // should not add consecutive duplicate
+        term.add_history("pwd".into());
+        term.add_history(" ".into()); // should not add empty
+        let hist = term.get_history();
+        assert_eq!(hist, vec!["ls", "pwd"]);
+    }
+
+    #[test]
+    fn test_terminal_output() {
+        let mut term = Terminal::new(10);
+        term.write_stdout(1, "hello");
+        term.write_stderr(1, "error");
+        
+        let chunks = term.output_drain();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].stream, Stream::Stdout);
+        assert_eq!(chunks[0].data, "hello");
+        
+        assert_eq!(chunks[1].stream, Stream::Stderr);
+        assert!(chunks[1].data.contains("error"));
+        assert!(chunks[1].data.contains("\x1b[31m"));
+        
+        assert!(term.output_drain().is_empty());
+    }
+
+    #[test]
+    fn test_terminal_input() {
+        let mut term = Terminal::new(10);
+        assert!(!term.input_pending());
+        term.input_push("cat", Some(2));
+        assert!(term.input_pending());
+        
+        let input = term.input_pop().unwrap();
+        assert_eq!(input.data, "cat");
+        assert_eq!(input.pid, Some(2));
+        assert!(!term.input_pending());
+    }
+
+    #[test]
+    fn test_terminal_resize() {
+        let mut term = Terminal::new(10);
+        term.resize(100, 50);
+        assert_eq!(term.size.cols, 100);
+        assert_eq!(term.size.rows, 50);
+    }
+}

@@ -149,3 +149,73 @@ impl McpClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_config() -> McpServerConfig {
+        McpServerConfig {
+            name: "test_server".to_string(),
+            transport: TransportConfig::Stdio {
+                command: "echo".to_string(),
+                args: vec![],
+            },
+            env: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_client_new() {
+        let client = McpClient::new(create_test_config());
+        assert_eq!(client.state, ConnectionState::Disconnected);
+        assert_eq!(client.config.name, "test_server");
+    }
+
+    #[test]
+    fn test_client_initialize() {
+        let mut client = McpClient::new(create_test_config());
+        let result = client.initialize();
+        assert!(result.is_ok());
+        assert_eq!(client.state, ConnectionState::Connected);
+    }
+
+    #[test]
+    fn test_client_call_tool_disconnected() {
+        let mut client = McpClient::new(create_test_config());
+        let err = client.call_tool("my_tool", json!({})).unwrap_err();
+        match err {
+            RunboxError::Runtime(msg) => assert!(msg.contains("not connected")),
+            _ => panic!("Expected Runtime error for disconnected state"),
+        }
+    }
+
+    #[test]
+    fn test_client_call_tool_connected() {
+        let mut client = McpClient::new(create_test_config());
+        client.initialize().unwrap();
+        
+        let result = client.call_tool("my_tool", json!({})).unwrap();
+        assert!(!result.is_error);
+    }
+
+    #[test]
+    fn test_client_read_resource_disconnected() {
+        let mut client = McpClient::new(create_test_config());
+        let err = client.read_resource("file:///test.txt").unwrap_err();
+        match err {
+            RunboxError::Runtime(msg) => assert!(msg.contains("not connected")),
+            _ => panic!("Expected Runtime error for disconnected state"),
+        }
+    }
+
+    #[test]
+    fn test_client_read_resource_connected() {
+        let mut client = McpClient::new(create_test_config());
+        client.initialize().unwrap();
+        
+        let result = client.read_resource("file:///test.txt").unwrap();
+        assert!(result.contains("[stub]"));
+    }
+}
+

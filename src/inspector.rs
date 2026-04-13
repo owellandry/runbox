@@ -320,3 +320,56 @@ impl InspectorSession {
         serde_json::to_string(&self.overlay()).unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_overlay_color() {
+        let content = OverlayColor::content();
+        assert_eq!(content.r, 111);
+        let padding = OverlayColor::padding();
+        assert_eq!(padding.r, 147);
+        let border = OverlayColor::border();
+        assert_eq!(border.r, 255);
+        let margin = OverlayColor::margin();
+        assert_eq!(margin.r, 246);
+    }
+
+    #[test]
+    fn test_inspector_session() {
+        let mut session = InspectorSession::new();
+        assert!(!session.active);
+        session.activate();
+        assert!(session.active);
+        session.deactivate();
+        assert!(!session.active);
+
+        let node = InspectedNode {
+            id: 1,
+            tag: "div".into(),
+            id_attr: Some("app".into()),
+            classes: vec!["container".into()],
+            attributes: vec![],
+            box_model: BoxModel {
+                x: 10.0, y: 10.0, width: 100.0, height: 100.0,
+                margin: Spacing { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 },
+                padding: Spacing { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 },
+                border: Spacing { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 },
+            },
+            styles: ComputedStyles { rules: vec![], computed: vec![] },
+            children: vec![],
+            inner_text: None,
+            source: None,
+        };
+
+        session.set_node(node);
+        assert_eq!(session.history.len(), 1);
+        assert!(session.selected.is_some());
+        
+        let overlay = session.overlay();
+        assert!(overlay.is_some());
+        assert_eq!(overlay.unwrap().node_id, 1);
+    }
+}

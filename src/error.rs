@@ -22,3 +22,17 @@ pub enum RunboxError {
 }
 
 pub type Result<T> = std::result::Result<T, RunboxError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_display() {
+        let err = RunboxError::NotFound("file.txt".into());
+        assert_eq!(err.to_string(), "not found: file.txt");
+
+        let err2 = RunboxError::PermissionDenied("dir".into());
+        assert_eq!(err2.to_string(), "permission denied: dir");
+    }
+}

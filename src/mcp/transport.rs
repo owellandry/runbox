@@ -289,3 +289,40 @@ impl McpTransport for InProcessTransport {
     }
     fn close(&mut self) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_in_process_transport() {
+        let mut transport = InProcessTransport::new(|msg| {
+            if msg == "ping" {
+                Some("pong".to_string())
+            } else {
+                None
+            }
+        });
+
+        let res = transport.send("ping").unwrap();
+        assert_eq!(res, "pong");
+
+        let err = transport.send("hello").unwrap_err();
+        match err {
+            RunboxError::Runtime(msg) => assert_eq!(msg, "in-process server: no response"),
+            _ => panic!("Expected Runtime error"),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_read_sse_event() {
+        let stream = "id: 1\nevent: message\ndata: {\"hello\":\"world\"}\n\n";
+        let data = SseTransport::read_sse_event(stream);
+        assert_eq!(data, Some("{\"hello\":\"world\"}".to_string()));
+
+        let stream_empty = "event: ping\n\n";
+        let data_empty = SseTransport::read_sse_event(stream_empty);
+        assert_eq!(data_empty, None);
+    }
+}

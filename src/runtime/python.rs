@@ -124,6 +124,10 @@ fn pip_exec(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
 }
 
 fn pip_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
+    if cmd.args.iter().any(|a| a == "-r") {
+        return pip_install_requirements(cmd, vfs, pm);
+    }
+
     let packages: Vec<String> = cmd
         .args
         .iter()
@@ -133,10 +137,6 @@ fn pip_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<
         .collect();
 
     if packages.is_empty() {
-        // pip install -r requirements.txt
-        if cmd.args.iter().any(|a| a == "-r") {
-            return pip_install_requirements(cmd, vfs, pm);
-        }
         return Err(RunboxError::Runtime(
             "pip install: specify package(s)".into(),
         ));
@@ -259,5 +259,129 @@ fn ok_out(s: impl Into<String>) -> ExecOutput {
         stdout: s.into().into_bytes(),
         stderr: vec![],
         exit_code: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::Command;
+    use crate::vfs::Vfs;
+    use crate::process::ProcessManager;
+
+    #[test]
+    fn test_python_name() {
+        let runtime = PythonRuntime;
+        assert_eq!(runtime.name(), "python");
+    }
+
+    #[test]
+    fn test_pip_install_single_package() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = PythonRuntime;
+
+        let cmd = Command {
+            program: "pip".to_string(),
+            args: vec!["install".to_string(), "requests==2.28.1".to_string()],
+            env: vec![],
+        };
+
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.exit_code, 0);
+        
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("Successfully installed requests==2.28.1"));
+
+        // Verify VFS has the package metadata
+        assert!(vfs.exists("/site-packages/requests-2.28.1.dist-info/METADATA"));
+        let meta = vfs.read_string("/site-packages/requests-2.28.1.dist-info/METADATA").unwrap();
+        assert!(meta.contains("Name: requests"));
+        assert!(meta.contains("Version: 2.28.1"));
+    }
+
+    #[test]
+    fn test_pip_install_requirements() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = PythonRuntime;
+
+        // Create requirements.txt
+        vfs.write("/requirements.txt", b"flask==2.0.1\nnumpy\n".to_vec()).unwrap();
+
+        let cmd = Command {
+            program: "pip".to_string(),
+            args: vec!["install".to_string(), "-r".to_string(), "requirements.txt".to_string()],
+            env: vec![],
+        };
+
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.exit_code, 0);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        println!("STDOUT: {}", stdout);
+        assert!(stdout.contains("Installing 2 packages from requirements.txt"));
+    }
+
+    #[test]
+    fn test_pip_list() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = PythonRuntime;
+
+        vfs.write("/site-packages/flask-2.0.1.dist-info/METADATA", vec![]).unwrap();
+        vfs.write("/site-packages/numpy-latest.dist-info/METADATA", vec![]).unwrap();
+
+        let cmd = Command {
+            program: "pip".to_string(),
+            args: vec!["list".to_string()],
+            env: vec![],
+        };
+
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.exit_code, 0);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("flask-2.0.1"));
+        assert!(stdout.contains("numpy-latest"));
+    }
+
+    #[test]
+    fn test_pip_show() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = PythonRuntime;
+
+        vfs.write("/site-packages/pytest-latest.dist-info/METADATA", b"Name: pytest\nVersion: latest\n".to_vec()).unwrap();
+
+        let cmd = Command {
+            program: "pip".to_string(),
+            args: vec!["show".to_string(), "pytest".to_string()],
+            env: vec![],
+        };
+
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.exit_code, 0);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("Name: pytest"));
+        assert!(stdout.contains("Version: latest"));
+    }
+
+    #[test]
+    fn test_pip_freeze() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = PythonRuntime;
+
+        vfs.write("/site-packages/django-4.0.0.dist-info/METADATA", vec![]).unwrap();
+
+        let cmd = Command {
+            program: "pip".to_string(),
+            args: vec!["freeze".to_string()],
+            env: vec![],
+        };
+
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.exit_code, 0);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("django==4.0.0"));
     }
 }

@@ -103,3 +103,29 @@ impl LspServer {
         Ok(diags)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_completions() {
+        let vfs = Vfs::new();
+        let comps_ts = LspServer::get_completions(&vfs, "app.ts", 0, 0).unwrap();
+        assert!(!comps_ts.is_empty());
+        assert_eq!(comps_ts[0].label, "console.log");
+
+        let comps_js = LspServer::get_completions(&vfs, "app.js", 0, 0).unwrap();
+        assert!(comps_js.is_empty());
+    }
+
+    #[test]
+    fn test_get_diagnostics() {
+        let mut vfs = Vfs::new();
+        vfs.write("test.ts", b"let a = 1;\ndebugger;\nlet b = 2;".to_vec()).unwrap();
+        let diags = LspServer::get_diagnostics(&vfs, "test.ts").unwrap();
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].range.start_line, 1);
+        assert_eq!(diags[0].message, "Unexpected 'debugger' statement");
+    }
+}

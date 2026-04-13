@@ -161,3 +161,96 @@ fn parse_qualified(name: &str, clients: &HashMap<String, McpClient>) -> Result<(
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mcp::client::{McpServerConfig, TransportConfig};
+    use serde_json::json;
+
+    fn create_test_config(name: &str) -> McpServerConfig {
+        McpServerConfig {
+            name: name.to_string(),
+            transport: TransportConfig::Stdio {
+                command: "echo".into(),
+                args: vec![],
+            },
+            env: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_registry_add_remove() {
+        let mut registry = McpRegistry::new();
+        assert!(registry.is_empty());
+
+        let config = create_test_config("test_server");
+        registry.add(config).unwrap();
+        assert!(!registry.is_empty());
+
+        let servers = registry.list_servers();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "test_server");
+
+        let removed = registry.remove("test_server");
+        assert!(removed);
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn test_parse_qualified() {
+        let mut clients = HashMap::new();
+        
+        let mut client1 = McpClient::new(create_test_config("srv1"));
+        client1.caps.tools.push(McpTool {
+            name: "tool_a".into(),
+            description: None,
+            input_schema: json!({}),
+        });
+        client1.caps.tools.push(McpTool {
+            name: "tool_shared".into(),
+            description: None,
+            input_schema: json!({}),
+        });
+        clients.insert("srv1".into(), client1);
+
+        let mut client2 = McpClient::new(create_test_config("srv2"));
+        client2.caps.tools.push(McpTool {
+            name: "tool_b".into(),
+            description: None,
+            input_schema: json!({}),
+        });
+        client2.caps.tools.push(McpTool {
+            name: "tool_shared".into(),
+            description: None,
+            input_schema: json!({}),
+        });
+        clients.insert("srv2".into(), client2);
+
+        // Explicit format
+        let res = parse_qualified("srv1/tool_a", &clients).unwrap();
+        assert_eq!(res, ("srv1".to_string(), "tool_a".to_string()));
+
+        // Implicit but unique
+        let res2 = parse_qualified("tool_a", &clients).unwrap();
+        assert_eq!(res2, ("srv1".to_string(), "tool_a".to_string()));
+
+        let res3 = parse_qualified("tool_b", &clients).unwrap();
+        assert_eq!(res3, ("srv2".to_string(), "tool_b".to_string()));
+
+        // Ambiguous
+        let err = parse_qualified("tool_shared", &clients).unwrap_err();
+        match err {
+            RunboxError::Runtime(msg) => assert!(msg.contains("ambiguous")),
+            _ => panic!("Expected Runtime error for ambiguous tool"),
+        }
+
+        // Not found
+        let err2 = parse_qualified("tool_unknown", &clients).unwrap_err();
+        match err2 {
+            RunboxError::NotFound(_) => (),
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+}
+

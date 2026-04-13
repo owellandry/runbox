@@ -80,3 +80,111 @@ fn ok(s: impl AsRef<[u8]>) -> ExecOutput {
         exit_code: 0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::Command;
+    use crate::vfs::Vfs;
+
+    #[test]
+    fn test_echo() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = ShellBuiltins;
+
+        let cmd = Command {
+            program: "echo".to_string(),
+            args: vec!["hello".to_string(), "world".to_string()],
+            env: vec![],
+        };
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.stdout, b"hello world\n");
+    }
+
+    #[test]
+    fn test_pwd() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = ShellBuiltins;
+
+        let cmd = Command {
+            program: "pwd".to_string(),
+            args: vec![],
+            env: vec![],
+        };
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.stdout, b"/\n");
+    }
+
+    #[test]
+    fn test_touch_and_ls() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = ShellBuiltins;
+
+        let cmd_touch = Command {
+            program: "touch".to_string(),
+            args: vec!["/test.txt".to_string()],
+            env: vec![],
+        };
+        runtime.exec(&cmd_touch, &mut vfs, &mut pm).unwrap();
+
+        let cmd_ls = Command {
+            program: "ls".to_string(),
+            args: vec!["/".to_string()],
+            env: vec![],
+        };
+        let out_ls = runtime.exec(&cmd_ls, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out_ls.stdout, b"test.txt\n");
+    }
+
+    #[test]
+    fn test_cat() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = ShellBuiltins;
+
+        vfs.write("/hello.txt", b"world".to_vec()).unwrap();
+
+        let cmd = Command {
+            program: "cat".to_string(),
+            args: vec!["/hello.txt".to_string()],
+            env: vec![],
+        };
+        let out = runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert_eq!(out.stdout, b"world");
+    }
+
+    #[test]
+    fn test_mkdir() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = ShellBuiltins;
+
+        let cmd = Command {
+            program: "mkdir".to_string(),
+            args: vec!["/mydir".to_string()],
+            env: vec![],
+        };
+        runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert!(vfs.exists("/mydir/.runbox_dir"));
+    }
+
+    #[test]
+    fn test_rm() {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+        let runtime = ShellBuiltins;
+
+        vfs.write("/delete_me.txt", vec![]).unwrap();
+
+        let cmd = Command {
+            program: "rm".to_string(),
+            args: vec!["/delete_me.txt".to_string()],
+            env: vec![],
+        };
+        runtime.exec(&cmd, &mut vfs, &mut pm).unwrap();
+        assert!(!vfs.exists("/delete_me.txt"));
+    }
+}

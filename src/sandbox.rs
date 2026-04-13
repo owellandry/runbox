@@ -133,3 +133,25 @@ pub fn event_to_json(event: &SandboxEvent) -> String {
 pub fn command_from_json(json: &str) -> Result<SandboxCommand, serde_json::Error> {
     serde_json::from_str(json)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sandbox_event_json() {
+        let event = SandboxEvent::Fullscreen { enable: true };
+        let json = event_to_json(&event);
+        assert_eq!(json, r#"{"type":"fullscreen","enable":true}"#);
+    }
+
+    #[test]
+    fn test_sandbox_command_json() {
+        let json = r#"{"type":"kill","pid":123}"#;
+        let cmd = command_from_json(json).unwrap();
+        match cmd {
+            SandboxCommand::Kill { pid } => assert_eq!(pid, 123),
+            _ => panic!("Wrong command parsed"),
+        }
+    }
+}
