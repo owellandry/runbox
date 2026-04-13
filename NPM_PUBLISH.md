@@ -1,218 +1,108 @@
-# Publicar RunBoxJS en NPM
+# RunboxJS npm Publish Guide
 
-Guía paso a paso para publicar la librería compilada en npmjs.
+This project publishes the JavaScript package as `runboxjs` from `runbox/pkg`.
+The recommended flow is the scripted build/publish pipeline in `build.mjs`.
 
-## Requisitos Previos
+## Prerequisites
 
-1. **Cuenta en npmjs.com** - Crear en https://www.npmjs.com/signup
-2. **Node.js y npm instalados** - Node 16+
-3. **Credenciales de npm configuradas** - Haber ejecutado `npm login`
+- npm account with publish permissions
+- `npm login` completed locally
+- Rust + `wasm-pack` installed
+- clean working tree recommended
 
-## Pasos para Publicar
+## Version Sources
 
-### 1. Preparar el Proyecto
+- Rust crate version: `Cargo.toml`
+- npm package template: `pkg-template.json`
+- generated publish manifest: `pkg/package.json`
 
-```bash
-cd runbox
-```
+`build.mjs` synchronizes versions and writes `pkg/package.json` from `pkg-template.json`.
 
-**Actualizar versión en `pkg/package.json`:**
-```bash
-# Opción 1: Editar manualmente
-# Cambia "version": "0.1.0" a "0.1.1" (o la versión que corresponda)
+## Recommended Publish Flow
 
-# Opción 2: Usar npm (si el proyecto es un monorepo)
-npm version patch  # 0.1.0 -> 0.1.1
-npm version minor  # 0.1.0 -> 0.2.0
-npm version major  # 0.1.0 -> 1.0.0
-```
-
-### 2. Compilar el Código Rust a WASM
+### 1. Build (no bump)
 
 ```bash
-wasm-pack build --target bundler --release
+node build.mjs
 ```
 
-Esto genera en la carpeta `pkg/`:
-- `runbox.js` - Binding de JavaScript
-- `runbox.d.ts` - TypeScript definitions
-- `runbox_bg.wasm` - El binario WebAssembly compilado
-- `runbox_bg.wasm.d.ts` - TypeScript definitions para WASM
+This will:
 
-### 3. Verificar los Archivos
+1. read versions from Cargo and existing `pkg/package.json`
+2. choose highest valid semver as base
+3. run `wasm-pack build --target web --release`
+4. regenerate `pkg/package.json` from template
+
+### 2. Bump version (optional)
 
 ```bash
-ls -la pkg/
+node build.mjs --bump patch
+# or --bump minor / --bump major
 ```
 
-Deberías ver:
-- ✅ `runbox.js`
-- ✅ `runbox.d.ts`
-- ✅ `runbox_bg.wasm`
-- ✅ `runbox_bg.wasm.d.ts`
-- ✅ `package.json` (actualizado)
-- ✅ `.npmignore`
+### 3. Publish
 
-### 4. Probar Localmente (Opcional)
+```bash
+node build.mjs --publish
+```
 
-Antes de publicar, puedes probar el paquete localmente:
+Or combine bump + publish in two explicit steps:
+
+```bash
+node build.mjs --bump patch
+node build.mjs --publish
+```
+
+## Manual Verification Checklist
+
+Before publishing, verify:
+
+- `pkg/package.json` has `name: runboxjs`
+- version is the expected one
+- `pkg/runbox.js` exists
+- `pkg/runbox_bg.wasm` exists
+- `pkg/runbox.d.ts` exists
+
+You can inspect package contents with:
 
 ```bash
 cd pkg
-npm link
-cd ../test-app
-npm link runboxjs
+npm pack --dry-run
 ```
 
-Esto permite usar el paquete local en el test-app como si estuviera en npmjs.
+## Common Release Issues
 
-### 5. Login en NPM
+### Version goes backwards
 
-Si aún no has iniciado sesión:
+Run the scripted flow from repo root (`node build.mjs`) so it compares Cargo/package versions and uses the highest semver baseline.
+
+### wasm-pack failure: crate-type must be cdylib
+
+Ensure `Cargo.toml` contains:
+
+```toml
+[lib]
+crate-type = ["cdylib", "rlib"]
+```
+
+### Wrong package name in generated pkg/package.json
+
+`pkg-template.json` is source of truth. Keep `name` as `runboxjs`.
+
+### npm auth errors
+
+Re-run:
 
 ```bash
 npm login
+npm whoami
 ```
 
-Te pedirá:
-- Username
-- Password
-- Email
-
-### 6. Publicar el Paquete
-
-**En la carpeta pkg/**:
+## Post-Publish Checks
 
 ```bash
-cd pkg
-npm publish
+npm view runboxjs version
+npm view runboxjs versions --json
 ```
 
-Si todo va bien verás:
-```
-npm notice Publishing to https://registry.npmjs.org/
-npm notice Publishing runboxjs@0.1.0
-+ runboxjs@0.1.0
-```
-
-### 7. Verificar la Publicación
-
-```bash
-# Visita el paquete en npmjs
-# https://www.npmjs.com/package/runboxjs
-
-# O desde la terminal
-npm info runboxjs
-```
-
-## Comandos Útiles
-
-```bash
-# Ver información del paquete publicado
-npm info runboxjs
-
-# Ver versiones publicadas
-npm view runboxjs versions
-
-# Descargar y probar desde npmjs
-npm install runboxjs
-
-# Ver contenido del tarball antes de publicar
-npm pack pkg/
-tar -tzf runboxjs-0.1.0.tgz
-```
-
-## Actualizaciones Futuras
-
-Cada vez que quieras publicar una nueva versión:
-
-1. **Actualizar código Rust**
-2. **Compilar**: `wasm-pack build --target bundler --release`
-3. **Incrementar versión** en `pkg/package.json`
-4. **Publicar**: `cd pkg && npm publish`
-
-## Versionado Semántico
-
-- **patch** (0.1.0 → 0.1.1): Bug fixes
-- **minor** (0.1.0 → 0.2.0): Nuevas funcionalidades (backwards compatible)
-- **major** (0.1.0 → 1.0.0): Cambios breaking
-
-## Hacer el Paquete Privado
-
-Si en el futuro necesitas mantener el paquete privado:
-
-```bash
-npm publish --access restricted
-```
-
-O en `pkg/package.json`:
-```json
-{
-  "private": true
-}
-```
-
-## Solucionar Problemas
-
-### "Package name already exists"
-El nombre `runboxjs` está disponible. Si no está, usa otro nombre único.
-
-### "npm ERR! 404 Not Found"
-Asegúrate de que:
-- Estás en la carpeta `pkg/`
-- El package.json existe y tiene la estructura correcta
-- Nombre del paquete es único
-
-### "You must be logged in"
-Ejecuta `npm login` primero
-
-### WASM file too large
-Si el `.wasm` es muy grande:
-- Reduce el tamaño en Cargo.toml con optimizaciones
-- O publica sin el archivo en .npmignore (NO recomendado)
-
-## Ejemplo Completo
-
-```bash
-# 1. Clonar/navegar al repo
-cd ~/Documents/solo/runbox
-
-# 2. Compilar
-wasm-pack build --target bundler --release
-
-# 3. Actualizar versión
-# Editar pkg/package.json y cambiar version
-
-# 4. Verificar contenido
-ls -la pkg/*.{js,wasm,d.ts}
-
-# 5. Login si es necesario
-npm login
-
-# 6. Publicar
-cd pkg
-npm publish
-
-# 7. Verificar
-npm info runboxjs
-```
-
-## Después de Publicar
-
-Los usuarios pueden instalarlo así:
-
-```bash
-npm install runboxjs
-```
-
-Y usarlo en sus proyectos:
-
-```javascript
-import init, * as runbox from 'runboxjs';
-await init();
-// ¡Listo para usar!
-```
-
----
-
-Para más información: https://docs.npmjs.com/packages-and-modules/
+Then test install in a clean sample app.

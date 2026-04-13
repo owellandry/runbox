@@ -90,7 +90,7 @@ if (compareSemver(nextVersion, cargoVersion) !== 0) {
 }
 
 console.log('Building WASM...');
-execSync('wasm-pack build --target bundler --release', { stdio: 'inherit' });
+execSync('wasm-pack build --target web --release', { stdio: 'inherit' });
 
 const template = JSON.parse(readFileSync('pkg-template.json', 'utf8'));
 template.version = version;

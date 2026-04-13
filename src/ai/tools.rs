@@ -1,10 +1,8 @@
-/// Definiciones de tools en formato JSON Schema.
-/// Compatible con OpenAI (function calling), Anthropic (tool use),
-/// Google Gemini, Mistral, Cohere, y cualquier proveedor que siga el estándar.
+// AI tool definitions and provider-specific serializers.
+// Compatible with OpenAI function calling, Anthropic tool use, and Gemini declarations.
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-/// Descripción de un tool que el AI puede invocar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: &'static str,
@@ -12,22 +10,18 @@ pub struct ToolDef {
     pub parameters: Value,
 }
 
-/// Llamada a tool que el AI solicita ejecutar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
     pub name: String,
     pub arguments: Value,
 }
 
-/// Resultado de ejecutar un tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
     pub name: String,
     pub content: Value,
     pub error: Option<String>,
 }
-
-// ── Definiciones de todos los tools disponibles ──────────────────────────────
 
 pub fn all_tools() -> Vec<ToolDef> {
     vec![
@@ -43,7 +37,6 @@ pub fn all_tools() -> Vec<ToolDef> {
     ]
 }
 
-/// Serializa los tools al formato OpenAI (functions array).
 pub fn to_openai_format(tools: &[ToolDef]) -> Value {
     json!(
         tools
@@ -60,7 +53,6 @@ pub fn to_openai_format(tools: &[ToolDef]) -> Value {
     )
 }
 
-/// Serializa los tools al formato Anthropic (tools array).
 pub fn to_anthropic_format(tools: &[ToolDef]) -> Value {
     json!(
         tools
@@ -74,7 +66,6 @@ pub fn to_anthropic_format(tools: &[ToolDef]) -> Value {
     )
 }
 
-/// Serializa los tools al formato Gemini (function_declarations).
 pub fn to_gemini_format(tools: &[ToolDef]) -> Value {
     json!([{
         "function_declarations": tools.iter().map(|t| json!({
@@ -85,18 +76,16 @@ pub fn to_gemini_format(tools: &[ToolDef]) -> Value {
     }])
 }
 
-// ── Tool definitions ──────────────────────────────────────────────────────────
-
 fn read_file() -> ToolDef {
     ToolDef {
         name: "read_file",
-        description: "Lee el contenido de un archivo del proyecto.",
+        description: "Read a file from the virtual project filesystem.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Ruta del archivo a leer (ej: /src/index.ts)"
+                    "description": "Absolute file path, for example /src/index.ts"
                 }
             },
             "required": ["path"]
@@ -107,17 +96,17 @@ fn read_file() -> ToolDef {
 fn write_file() -> ToolDef {
     ToolDef {
         name: "write_file",
-        description: "Escribe o crea un archivo en el proyecto.",
+        description: "Create or overwrite a file in the virtual project filesystem.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Ruta del archivo a escribir"
+                    "description": "Absolute file path to write"
                 },
                 "content": {
                     "type": "string",
-                    "description": "Contenido del archivo"
+                    "description": "Full file content"
                 }
             },
             "required": ["path", "content"]
@@ -128,13 +117,13 @@ fn write_file() -> ToolDef {
 fn list_dir() -> ToolDef {
     ToolDef {
         name: "list_dir",
-        description: "Lista los archivos y carpetas en un directorio.",
+        description: "List files and directories inside a path.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Directorio a listar (default: /)"
+                    "description": "Directory path. Defaults to /."
                 }
             },
             "required": []
@@ -145,13 +134,13 @@ fn list_dir() -> ToolDef {
 fn exec_command() -> ToolDef {
     ToolDef {
         name: "exec_command",
-        description: "Ejecuta un comando de shell en el sandbox (bun, python, git, npm, etc.).",
+        description: "Execute a shell command in the sandbox runtime (bun/node/npm/pnpm/yarn/git/python/pip).",
         parameters: json!({
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "Comando a ejecutar (ej: bun run index.ts)"
+                    "description": "Command line to execute, for example npm run start"
                 }
             },
             "required": ["command"]
@@ -162,21 +151,21 @@ fn exec_command() -> ToolDef {
 fn search_code() -> ToolDef {
     ToolDef {
         name: "search_code",
-        description: "Busca un patrón de texto en todos los archivos del proyecto.",
+        description: "Search text across project files with optional directory and extension filters.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Texto o patrón a buscar"
+                    "description": "Text pattern to find"
                 },
                 "path": {
                     "type": "string",
-                    "description": "Directorio donde buscar (opcional, default: /)"
+                    "description": "Directory root for the search. Defaults to /."
                 },
                 "extension": {
                     "type": "string",
-                    "description": "Filtrar por extensión (ej: .ts, .py)"
+                    "description": "Optional extension filter, for example .ts or .py"
                 }
             },
             "required": ["query"]
@@ -187,18 +176,18 @@ fn search_code() -> ToolDef {
 fn get_console_logs() -> ToolDef {
     ToolDef {
         name: "get_console_logs",
-        description: "Obtiene los logs de la consola del sandbox.",
+        description: "Read console logs from the sandbox. Supports level and incremental filtering.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "level": {
                     "type": "string",
                     "enum": ["log", "info", "warn", "error", "debug"],
-                    "description": "Filtrar por nivel (opcional)"
+                    "description": "Optional log level filter"
                 },
                 "since_id": {
                     "type": "number",
-                    "description": "Solo entradas con ID mayor a este valor"
+                    "description": "Optional cursor. Return entries with id greater than this value"
                 }
             },
             "required": []
@@ -209,13 +198,13 @@ fn get_console_logs() -> ToolDef {
 fn reload_sandbox() -> ToolDef {
     ToolDef {
         name: "reload_sandbox",
-        description: "Recarga el sandbox (reinicia el proceso o el iframe del browser).",
+        description: "Request sandbox reload action metadata (hard or soft reload).",
         parameters: json!({
             "type": "object",
             "properties": {
                 "hard": {
                     "type": "boolean",
-                    "description": "true = recarga completa, false = hot reload"
+                    "description": "true for full reload, false for soft reload signal"
                 }
             },
             "required": []
@@ -226,23 +215,23 @@ fn reload_sandbox() -> ToolDef {
 fn install_packages() -> ToolDef {
     ToolDef {
         name: "install_packages",
-        description: "Instala dependencias del proyecto usando el package manager detectado (bun, npm, pnpm, yarn).",
+        description: "Install project dependencies with auto-detected or explicit package manager.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "packages": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "Lista de paquetes a instalar (vacío = instalar package.json)"
+                    "description": "Package list. Empty array means install from package.json"
                 },
                 "dev": {
                     "type": "boolean",
-                    "description": "Instalar como devDependency"
+                    "description": "Install as development dependency"
                 },
                 "manager": {
                     "type": "string",
                     "enum": ["bun", "npm", "pnpm", "yarn"],
-                    "description": "Package manager a usar (auto-detectado si no se especifica)"
+                    "description": "Optional package manager override"
                 }
             },
             "required": []
@@ -253,17 +242,17 @@ fn install_packages() -> ToolDef {
 fn get_file_tree() -> ToolDef {
     ToolDef {
         name: "get_file_tree",
-        description: "Obtiene el árbol completo de archivos del proyecto en formato JSON.",
+        description: "Return a recursive JSON tree of files and directories.",
         parameters: json!({
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Directorio raíz (default: /)"
+                    "description": "Root directory path. Defaults to /."
                 },
                 "depth": {
                     "type": "number",
-                    "description": "Profundidad máxima (default: 5)"
+                    "description": "Maximum recursion depth. Defaults to 5"
                 }
             },
             "required": []
@@ -279,10 +268,13 @@ mod tests {
     fn all_tools_serialize() {
         let tools = all_tools();
         assert!(!tools.is_empty());
+
         let openai = to_openai_format(&tools);
         assert!(openai.is_array());
+
         let anthropic = to_anthropic_format(&tools);
         assert!(anthropic.is_array());
+
         let gemini = to_gemini_format(&tools);
         assert!(gemini.is_array());
     }

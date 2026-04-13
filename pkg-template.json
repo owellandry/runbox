@@ -19,13 +19,11 @@
   "files": [
     "runbox.js",
     "runbox.d.ts",
-    "runbox_bg.js",
     "runbox_bg.wasm",
-    "snippets",
     "README.md",
     "LICENSE"
   ],
-  "sideEffects": ["./runbox.js", "./snippets/*"],
+  "sideEffects": ["./runbox.js"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/owellandry/runbox.git"
