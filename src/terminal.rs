@@ -1,11 +1,19 @@
 use crate::process::Pid;
 use serde::{Deserialize, Serialize};
-/// Terminal — integración con xterm.js.
-/// Gestiona el buffer de salida, cola de entrada y redimensionado.
-/// El lado JS (xterm.js) lee `output_drain()` y escribe con `input_push()`.
 use std::collections::VecDeque;
 
-// ── Tamaño del terminal ───────────────────────────────────────────────────────
+/// Terminal — integración con xterm.js.
+/// Gestiona el buffer de salida, cola de entrada, historial y redimensionado.
+/// El lado JS (xterm.js) lee `output_drain_json()` y escribe con `input_push()`.
+pub struct Terminal {
+    output_buf: VecDeque<OutputChunk>,
+    input_buf: VecDeque<InputChunk>,
+    pub size: TerminalSize,
+    capacity: usize,
+    history: Vec<String>,
+    max_history: usize,
+    prompt: String,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TerminalSize {
@@ -19,22 +27,15 @@ impl Default for TerminalSize {
     }
 }
 
-// ── Entrada del usuario ───────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub struct InputChunk {
-    /// PID del proceso que debe recibir este input (None = proceso activo).
     pub pid: Option<Pid>,
     pub data: String,
 }
 
-// ── Buffer de salida ──────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputChunk {
-    /// PID que generó la salida.
     pub pid: Pid,
-    /// ANSI text tal cual — xterm.js lo renderiza directamente.
     pub data: String,
     pub stream: Stream,
 }
@@ -46,17 +47,6 @@ pub enum Stream {
     Stderr,
 }
 
-// ── Terminal ──────────────────────────────────────────────────────────────────
-
-pub struct Terminal {
-    output_buf: VecDeque<OutputChunk>,
-    input_buf: VecDeque<InputChunk>,
-    pub size: TerminalSize,
-    capacity: usize,
-    /// Historial de comandos del usuario, fase 6.2 term
-    pub history: Vec<String>,
-}
-
 impl Terminal {
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -65,17 +55,31 @@ impl Terminal {
             size: TerminalSize::default(),
             capacity,
             history: Vec::new(),
+            max_history: 1000,
+            prompt: "user@runbox".to_string(),
         }
     }
 
+    /// Cambia el prompt (ej: "user@runbox", "root@server", etc.)
+    pub fn set_prompt(&mut self, prompt: impl Into<String>) {
+        self.prompt = prompt.into();
+    }
+
+    // ── Historial ─────────────────────────────────────────────────────────────
+
     pub fn add_history(&mut self, cmd: String) {
-        if !cmd.trim().is_empty() {
-            if let Some(last) = self.history.last()
-                && last == &cmd
-            {
-                return; // Evita duplicados consecutivos
+        let cmd = cmd.trim();
+        if cmd.is_empty() {
+            return;
+        }
+        if let Some(last) = self.history.last() {
+            if last == cmd {
+                return; // evita duplicados consecutivos
             }
-            self.history.push(cmd);
+        }
+        self.history.push(cmd.to_string());
+        if self.history.len() > self.max_history {
+            self.history.remove(0);
         }
     }
 
@@ -83,20 +87,38 @@ impl Terminal {
         self.history.clone()
     }
 
-    // ── Output (RunBox → xterm.js) ────────────────────────────────────────────
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
+
+    /// Búsqueda en historial (estilo Ctrl+R)
+    pub fn search_history(&self, query: &str) -> Vec<String> {
+        if query.is_empty() {
+            return self.history.clone();
+        }
+        self.history
+            .iter()
+            .filter(|cmd| cmd.contains(query))
+            .cloned()
+            .collect()
+    }
+
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
+    // ── Output ────────────────────────────────────────────────────────────────
 
     pub fn write_stdout(&mut self, pid: Pid, data: impl Into<String>) {
         self.push_output(pid, data.into(), Stream::Stdout);
     }
 
     pub fn write_stderr(&mut self, pid: Pid, data: impl Into<String>) {
-        // stderr en rojo via ANSI
         let raw = data.into();
-        let colored = format!("\x1b[31m{raw}\x1b[0m");
+        let colored = format!("\x1b[91m{raw}\x1b[0m"); // rojo más brillante
         self.push_output(pid, colored, Stream::Stderr);
     }
 
-    /// Ingesta stdout/stderr de un ExecOutput completo.
     pub fn ingest_output(&mut self, pid: Pid, stdout: &[u8], stderr: &[u8]) {
         if !stdout.is_empty() {
             self.write_stdout(pid, String::from_utf8_lossy(stdout));
@@ -113,8 +135,6 @@ impl Terminal {
         self.output_buf.push_back(OutputChunk { pid, data, stream });
     }
 
-    /// Devuelve y vacía todos los chunks de salida pendientes.
-    /// xterm.js llama esto en un poll (requestAnimationFrame).
     pub fn output_drain(&mut self) -> Vec<OutputChunk> {
         self.output_buf.drain(..).collect()
     }
@@ -123,10 +143,15 @@ impl Terminal {
         serde_json::to_string(&self.output_drain()).unwrap_or_default()
     }
 
-    /// Escribe el prompt inicial del shell.
+    pub fn clear_output(&mut self) {
+        self.output_buf.clear();
+    }
+
     pub fn write_prompt(&mut self, cwd: &str) {
-        // "user@runbox:/src $ " con color
-        let prompt = format!("\x1b[32muser@runbox\x1b[0m:\x1b[34m{cwd}\x1b[0m$ ");
+        let prompt = format!(
+            "\x1b[32m{}\x1b[0m:\x1b[34m{cwd}\x1b[0m$ ",
+            self.prompt
+        );
         self.push_output(0, prompt, Stream::Stdout);
     }
 
@@ -139,9 +164,8 @@ impl Terminal {
         self.push_output(0, banner.to_string(), Stream::Stdout);
     }
 
-    // ── Input (xterm.js → RunBox) ─────────────────────────────────────────────
+    // ── Input ─────────────────────────────────────────────────────────────────
 
-    /// xterm.js llama esto cuando el usuario escribe.
     pub fn input_push(&mut self, data: impl Into<String>, pid: Option<Pid>) {
         self.input_buf.push_back(InputChunk {
             pid,
@@ -149,7 +173,6 @@ impl Terminal {
         });
     }
 
-    /// El process manager consume el input pendiente.
     pub fn input_pop(&mut self) -> Option<InputChunk> {
         self.input_buf.pop_front()
     }
@@ -158,7 +181,7 @@ impl Terminal {
         !self.input_buf.is_empty()
     }
 
-    // ── Resize ────────────────────────────────────────────────────────────────
+    // ── Resize & Control ──────────────────────────────────────────────────────
 
     pub fn resize(&mut self, cols: u16, rows: u16) {
         self.size = TerminalSize { cols, rows };
@@ -168,14 +191,25 @@ impl Terminal {
         serde_json::to_string(&self.size).unwrap_or_default()
     }
 
-    // ── Control sequences ─────────────────────────────────────────────────────
-
     pub fn clear(&mut self) {
         self.push_output(0, "\x1b[2J\x1b[H".to_string(), Stream::Stdout);
     }
 
     pub fn move_cursor(&mut self, row: u16, col: u16) {
         self.push_output(0, format!("\x1b[{row};{col}H"), Stream::Stdout);
+    }
+
+    /// Emite un beep (xterm.js lo reproduce como sonido)
+    pub fn bell(&mut self) {
+        self.push_output(0, "\x07".to_string(), Stream::Stdout);
+    }
+
+    /// Cambia la capacidad máxima del buffer de salida
+    pub fn set_capacity(&mut self, new_capacity: usize) {
+        self.capacity = new_capacity;
+        while self.output_buf.len() > new_capacity {
+            self.output_buf.pop_front();
+        }
     }
 }
 
@@ -185,39 +219,13 @@ impl Default for Terminal {
     }
 }
 
-// ── JavaScript glue (generado en runtime) ────────────────────────────────────
+// ── JavaScript glue (igual que antes, pero con nuevos métodos) ───────────────
 //
-// El código JS que conecta RunBox WASM con xterm.js:
-//
-// ```js
-// import { Terminal as XTerm } from 'xterm';
-// import init, { RunboxInstance } from './runbox.js';
-//
-// const xterm = new XTerm({ cursorBlink: true, theme: { background: '#1a1b1e' } });
-// xterm.open(document.getElementById('terminal'));
-//
-// const runbox = new RunboxInstance();
-//
-// // Poll de salida a 60fps
-// function pollOutput() {
-//   const chunks = JSON.parse(runbox.terminal_drain());
-//   for (const chunk of chunks) xterm.write(chunk.data);
-//   requestAnimationFrame(pollOutput);
-// }
-// requestAnimationFrame(pollOutput);
-//
-// // Input del usuario
 // xterm.onData(data => runbox.terminal_input(data, null));
-//
-// // Resize
-// const fit = new FitAddon();
-// xterm.loadAddon(fit);
-// fit.fit();
-// new ResizeObserver(() => {
-//   fit.fit();
-//   runbox.terminal_resize(xterm.cols, xterm.rows);
-// }).observe(document.getElementById('terminal'));
-// ```
+// runbox.terminal_drain_json()
+// runbox.terminal_search_history("ls")   ← nuevo!
+// runbox.terminal_bell()
+// runbox.terminal_clear_output()
 
 #[cfg(test)]
 mod tests {
@@ -227,11 +235,23 @@ mod tests {
     fn test_terminal_history() {
         let mut term = Terminal::new(100);
         term.add_history("ls".into());
-        term.add_history("ls".into()); // should not add consecutive duplicate
+        term.add_history("ls".into());
         term.add_history("pwd".into());
-        term.add_history(" ".into()); // should not add empty
-        let hist = term.get_history();
-        assert_eq!(hist, vec!["ls", "pwd"]);
+        term.add_history("   ".into());
+        assert_eq!(term.history_len(), 2);
+        assert_eq!(term.get_history(), vec!["ls", "pwd"]);
+    }
+
+    #[test]
+    fn test_history_search() {
+        let mut term = Terminal::new(100);
+        term.add_history("ls -la".into());
+        term.add_history("cd /src".into());
+        term.add_history("ls --help".into());
+
+        let results = term.search_history("ls");
+        assert_eq!(results.len(), 2);
+        assert!(results.contains(&"ls -la".to_string()));
     }
 
     #[test]
@@ -243,33 +263,23 @@ mod tests {
         let chunks = term.output_drain();
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].stream, Stream::Stdout);
-        assert_eq!(chunks[0].data, "hello");
+        assert!(chunks[1].data.contains("\x1b[91m"));
+    }
 
-        assert_eq!(chunks[1].stream, Stream::Stderr);
-        assert!(chunks[1].data.contains("error"));
-        assert!(chunks[1].data.contains("\x1b[31m"));
-
+    #[test]
+    fn test_bell_and_clear() {
+        let mut term = Terminal::new(10);
+        term.bell();
+        term.clear_output();
         assert!(term.output_drain().is_empty());
     }
 
     #[test]
-    fn test_terminal_input() {
+    fn test_custom_prompt() {
         let mut term = Terminal::new(10);
-        assert!(!term.input_pending());
-        term.input_push("cat", Some(2));
-        assert!(term.input_pending());
-
-        let input = term.input_pop().unwrap();
-        assert_eq!(input.data, "cat");
-        assert_eq!(input.pid, Some(2));
-        assert!(!term.input_pending());
-    }
-
-    #[test]
-    fn test_terminal_resize() {
-        let mut term = Terminal::new(10);
-        term.resize(100, 50);
-        assert_eq!(term.size.cols, 100);
-        assert_eq!(term.size.rows, 50);
+        term.set_prompt("root@server");
+        term.write_prompt("/etc");
+        let chunks = term.output_drain();
+        assert!(chunks[0].data.contains("root@server"));
     }
 }

@@ -727,3 +727,133 @@ mod tests {
         assert!(true);
     }
 }
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TERMINAL SESSION - API de alto nivel para shell interactivo
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub struct TerminalSession {
+    // 🔧 CORRECCIÓN: Usar Box en lugar de Rc<RefCell<>> para evitar problemas de borrowing
+    inner: Box<crate::terminal_api::TerminalSession>,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+impl TerminalSession {
+    /// Crea una nueva sesión de terminal
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: Box::new(crate::terminal_api::TerminalSession::new()),
+        }
+    }
+
+    /// Ejecuta un comando y retorna el resultado
+    /// Retorna JSON: { pid, stdout, stderr, exit_code }
+    pub fn exec(&mut self, command: &str) -> Result<JsValue, JsValue> {
+        match self.inner.exec(command) {
+            Ok(result) => {
+                // 🔧 CORRECCIÓN: Convertir Vec<u8> a arrays de números para JSON
+                let stdout_array: Vec<u8> = result.stdout;
+                let stderr_array: Vec<u8> = result.stderr;
+                
+                // Crear Uint8Array directamente en lugar de pasar por JSON
+                let stdout_js = js_sys::Uint8Array::new_with_length(stdout_array.len() as u32);
+                stdout_js.copy_from(&stdout_array);
+                
+                let stderr_js = js_sys::Uint8Array::new_with_length(stderr_array.len() as u32);
+                stderr_js.copy_from(&stderr_array);
+                
+                // Crear objeto resultado
+                let obj = js_sys::Object::new();
+                js_sys::Reflect::set(&obj, &"pid".into(), &JsValue::from(result.pid))?;
+                js_sys::Reflect::set(&obj, &"stdout".into(), &stdout_js)?;
+                js_sys::Reflect::set(&obj, &"stderr".into(), &stderr_js)?;
+                js_sys::Reflect::set(&obj, &"exit_code".into(), &JsValue::from(result.exit_code))?;
+                
+                Ok(obj.into())
+            }
+            Err(e) => Err(JsValue::from_str(&format!("Error: {}", e))),
+        }
+    }
+
+    /// Obtiene el output del terminal para renderizar en xterm.js
+    /// Retorna JSON string con los chunks de output
+    pub fn drain_output(&mut self) -> String {
+        self.inner.drain_output()
+    }
+
+    /// Obtiene el estado actual de la sesión
+    /// Retorna JSON: { cwd, env, last_exit_code, history }
+    pub fn get_state(&self) -> JsValue {
+        let state = self.inner.get_state();
+        
+        // 🔧 CORRECCIÓN: Construir el objeto manualmente para evitar memory access issues
+        let obj = js_sys::Object::new();
+        
+        // cwd
+        js_sys::Reflect::set(&obj, &"cwd".into(), &JsValue::from_str(&state.cwd)).ok();
+        
+        // env - convertir HashMap a Object
+        let env_obj = js_sys::Object::new();
+        for (key, value) in &state.env {
+            js_sys::Reflect::set(
+                &env_obj,
+                &JsValue::from_str(key),
+                &JsValue::from_str(value)
+            ).ok();
+        }
+        js_sys::Reflect::set(&obj, &"env".into(), &env_obj).ok();
+        
+        // last_exit_code
+        js_sys::Reflect::set(&obj, &"last_exit_code".into(), &JsValue::from(state.last_exit_code)).ok();
+        
+        // history - convertir Vec a Array
+        let history_arr = js_sys::Array::new();
+        for cmd in &state.history {
+            history_arr.push(&JsValue::from_str(cmd));
+        }
+        js_sys::Reflect::set(&obj, &"history".into(), &history_arr).ok();
+        
+        obj.into()
+    }
+
+    /// Escribe un archivo en el VFS
+    pub fn write_file(&mut self, path: &str, content: &[u8]) -> Result<(), JsValue> {
+        self.inner.vfs_write(path, content.to_vec())
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Lee un archivo del VFS
+    pub fn read_file(&self, path: &str) -> Result<Vec<u8>, JsValue> {
+        self.inner.vfs_read(path)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Lista archivos en un directorio
+    pub fn list_dir(&self, path: &str) -> Result<String, JsValue> {
+        let entries = self.inner.vfs_list(path)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(serde_json::to_string(&entries).unwrap_or_default())
+    }
+
+    /// Verifica si un archivo existe
+    pub fn file_exists(&self, path: &str) -> bool {
+        self.inner.vfs_exists(path)
+    }
+
+    /// Elimina un archivo o directorio
+    pub fn remove_file(&mut self, path: &str) -> Result<(), JsValue> {
+        self.inner.vfs_remove(path)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Resetea la sesión a su estado inicial limpio
+    /// Útil para limpiar estado entre tests
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}

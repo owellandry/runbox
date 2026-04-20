@@ -99,10 +99,23 @@ fn current_branch(vfs: &Vfs) -> Option<String> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn now_str() -> String {
     chrono::Local::now()
         .format("%Y-%m-%d %H:%M:%S %z")
         .to_string()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn now_str() -> String {
+    let date = js_sys::Date::new_0();
+    let year = date.get_utc_full_year();
+    let month = date.get_utc_month() + 1;
+    let day = date.get_utc_date();
+    let hours = date.get_utc_hours();
+    let minutes = date.get_utc_minutes();
+    let seconds = date.get_utc_seconds();
+    format!("{year:04}-{month:02}-{day:02} {hours:02}:{minutes:02}:{seconds:02} +0000")
 }
 
 // ── Runtime ───────────────────────────────────────────────────────────────────
@@ -152,6 +165,13 @@ fn git_init(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
         format!("{path}/.git")
     };
 
+    // Crear el directorio .git primero
+    vfs.mkdir(&git)?;
+    vfs.mkdir(&format!("{git}/refs"))?;
+    vfs.mkdir(&format!("{git}/refs/heads"))?;
+    vfs.mkdir(&format!("{git}/objects"))?;
+
+    // Ahora escribir los archivos
     vfs.write(&format!("{git}/HEAD"), b"ref: refs/heads/main\n".to_vec())?;
     vfs.write(&format!("{git}/config"), default_git_config().into_bytes())?;
     vfs.write(
@@ -895,21 +915,11 @@ fn git_config(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
     let pid = pm.spawn("git", cmd.args.clone());
 
     // git config [--global] user.name "Nombre"
-    let (key, value) = match args.len() {
-        4 => match args.as_slice() {
-            [_, "--global", k, v] | [_, k, v] => (*k, Some(*v)),
-            _ => {
-                pm.exit(pid, 1)?;
-                return Ok(err_out("git config: invalid syntax"));
-            }
-        },
-        3 => match args.as_slice() {
-            [_, "--global", k] | [_, k] => (*k, None),
-            _ => {
-                pm.exit(pid, 1)?;
-                return Ok(err_out("git config: invalid syntax"));
-            }
-        },
+    let (key, value) = match args.as_slice() {
+        [_, "--global", k, v] => (*k, Some(*v)),
+        [_, "--global", k] => (*k, None),
+        [_, k, v] => (*k, Some(*v)),
+        [_, k] => (*k, None),
         _ => {
             pm.exit(pid, 1)?;
             return Ok(err_out("git config: invalid syntax"));

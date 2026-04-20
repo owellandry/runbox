@@ -19,6 +19,7 @@ pub mod security;
 pub mod session;
 pub mod shell;
 pub mod terminal;
+pub mod terminal_api;
 pub mod vfs;
 pub mod wasm_opt;
 pub mod websocket;

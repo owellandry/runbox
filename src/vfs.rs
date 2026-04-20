@@ -221,6 +221,27 @@ impl Vfs {
         get(&self.root, &parts).is_ok()
     }
 
+    /// Crea un directorio (y sus padres si no existen).
+    pub fn mkdir(&mut self, path: &str) -> Result<()> {
+        let parts = split_path(path);
+        mkdir_recursive(&mut self.root, &parts)?;
+        
+        // No emitir cambios en archivos internos de .git
+        if !path.starts_with("/.git/") {
+            self.pending_changes.push(FileChange {
+                path: path.to_string(),
+                kind: ChangeKind::Created,
+            });
+        }
+        Ok(())
+    }
+
+    /// Verifica si un path es un directorio.
+    pub fn is_dir(&self, path: &str) -> bool {
+        let parts = split_path(path);
+        matches!(get(&self.root, &parts), Ok(Node::Dir(_)))
+    }
+
     /// Retorna todos los cambios pendientes y limpia la cola.
     pub fn drain_changes(&mut self) -> Vec<FileChange> {
         std::mem::take(&mut self.pending_changes)
@@ -559,6 +580,30 @@ fn insert(node: &mut Node, parts: &[String], content: Vec<u8>) -> Result<()> {
                     .entry(parts[0].clone())
                     .or_insert_with(|| Node::Dir(BTreeMap::new()));
                 insert(child, &parts[1..], content)
+            }
+        }
+        Node::File(_) => Err(RunboxError::Vfs("expected directory".into())),
+    }
+}
+
+fn mkdir_recursive(node: &mut Node, parts: &[String]) -> Result<()> {
+    match node {
+        Node::Dir(entries) => {
+            if parts.is_empty() {
+                return Ok(());
+            }
+            if parts.len() == 1 {
+                // Crear el directorio final si no existe
+                entries
+                    .entry(parts[0].clone())
+                    .or_insert_with(|| Node::Dir(BTreeMap::new()));
+                Ok(())
+            } else {
+                // Crear directorios intermedios recursivamente
+                let child = entries
+                    .entry(parts[0].clone())
+                    .or_insert_with(|| Node::Dir(BTreeMap::new()));
+                mkdir_recursive(child, &parts[1..])
             }
         }
         Node::File(_) => Err(RunboxError::Vfs("expected directory".into())),
