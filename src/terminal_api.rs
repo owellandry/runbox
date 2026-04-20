@@ -303,11 +303,11 @@ impl TerminalSession {
             return Ok(CommandAst::Sequence(nodes));
         }
 
-        if let Some(last) = tokens.last() {
-            if matches!(last, Token::Background) {
-                let node = self.parse_tokens(&tokens[..tokens.len() - 1])?;
-                return Ok(CommandAst::Background(Box::new(node)));
-            }
+        if let Some(last) = tokens.last()
+            && matches!(last, Token::Background)
+        {
+            let node = self.parse_tokens(&tokens[..tokens.len() - 1])?;
+            return Ok(CommandAst::Background(Box::new(node)));
         }
 
         if tokens.iter().any(|t| {
@@ -384,16 +384,16 @@ impl TerminalSession {
                         1
                     };
                     i += 1;
-                    if i < tokens.len() {
-                        if let Token::Word(path) = &tokens[i] {
-                            redirects.push(Redirect {
-                                fd,
-                                target: RedirectTarget::File {
-                                    path: path.clone(),
-                                    append,
-                                },
-                            });
-                        }
+                    if i < tokens.len()
+                        && let Token::Word(path) = &tokens[i]
+                    {
+                        redirects.push(Redirect {
+                            fd,
+                            target: RedirectTarget::File {
+                                path: path.clone(),
+                                append,
+                            },
+                        });
                     }
                 }
                 Token::RedirectErrOut => {
@@ -657,7 +657,7 @@ impl TerminalSession {
         for file in &cmd.args {
             let resolved = self.resolve_path(file);
             match self.vfs.read(&resolved) {
-                Ok(content) => stdout.extend_from_slice(&content),
+                Ok(content) => stdout.extend_from_slice(content),
                 Err(_) => {
                     return Ok(CommandResult::error(
                         0,
@@ -797,7 +797,7 @@ impl TerminalSession {
         for file in files {
             let resolved = self.resolve_path(file);
             if let Ok(content) = self.vfs.read(&resolved) {
-                let text = String::from_utf8_lossy(&content);
+                let text = String::from_utf8_lossy(content);
                 for line in text.lines() {
                     if line.contains(pattern) {
                         stdout.extend_from_slice(line.as_bytes());
@@ -984,11 +984,9 @@ impl TerminalSession {
                         result.stderr.clear();
                     }
                 }
-                RedirectTarget::Fd(target_fd) => {
-                    if redirect.fd == 2 && *target_fd == 1 {
-                        result.stdout.extend_from_slice(&result.stderr);
-                        result.stderr.clear();
-                    }
+                RedirectTarget::Fd(target_fd) if redirect.fd == 2 && *target_fd == 1 => {
+                    result.stdout.extend_from_slice(&result.stderr);
+                    result.stderr.clear();
                 }
                 _ => {}
             }
@@ -1002,7 +1000,7 @@ impl TerminalSession {
 
     pub fn get_state(&self) -> SessionState {
         // 🔧 CORRECCIÓN: Crear el estado de forma más segura para evitar memory access issues
-        let history_vec: Vec<String> = self.history.iter().map(|s| s.clone()).collect();
+        let history_vec: Vec<String> = self.history.iter().cloned().collect();
 
         SessionState {
             cwd: self.cwd.clone(),

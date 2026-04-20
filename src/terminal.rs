@@ -72,10 +72,10 @@ impl Terminal {
         if cmd.is_empty() {
             return;
         }
-        if let Some(last) = self.history.last() {
-            if last == cmd {
-                return; // evita duplicados consecutivos
-            }
+        if let Some(last) = self.history.last()
+            && last == cmd
+        {
+            return; // evita duplicados consecutivos
         }
         self.history.push(cmd.to_string());
         if self.history.len() > self.max_history {

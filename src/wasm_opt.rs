@@ -358,7 +358,7 @@ impl WasmProfiler {
             .map(|(kind, durations)| {
                 let count = durations.len() as u64;
                 let total: u64 = durations.iter().sum();
-                let avg = if count > 0 { total / count } else { 0 };
+                let avg = total.checked_div(count).unwrap_or(0);
                 let max = durations.iter().copied().max().unwrap_or(0);
                 let min = durations.iter().copied().min().unwrap_or(0);
                 (
