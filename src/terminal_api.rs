@@ -1,6 +1,5 @@
 /// API de Terminal de alto nivel para ejecutar comandos de forma interactiva
 /// Versión FINAL corregida y limpia
-
 use crate::error::{Result, RunboxError};
 use crate::process::{Pid, ProcessManager};
 use crate::runtime::Runtime;
@@ -22,11 +21,11 @@ enum Token {
     Or,
     Semicolon,
     Background,
-    RedirectOut,        // >
-    RedirectAppend,     // >>
-    RedirectIn,         // <
-    RedirectErr,        // 2>
-    RedirectErrOut,     // 2>&1
+    RedirectOut,    // >
+    RedirectAppend, // >>
+    RedirectIn,     // <
+    RedirectErr,    // 2>
+    RedirectErrOut, // 2>&1
 }
 
 /// Sesión de terminal interactiva con estado completo
@@ -74,31 +73,35 @@ impl TerminalSession {
     pub fn reset(&mut self) {
         // Limpiar VFS
         self.vfs = Vfs::new();
-        
+
         // Limpiar ProcessManager
         self.pm = ProcessManager::new();
-        
+
         // Resetear directorio actual
         self.cwd = "/".to_string();
-        
+
         // Resetear variables de entorno a valores por defecto
         self.env.clear();
-        self.env.insert("PATH".to_string(), "/usr/bin:/bin".to_string());
-        self.env.insert("HOME".to_string(), "/home/user".to_string());
+        self.env
+            .insert("PATH".to_string(), "/usr/bin:/bin".to_string());
+        self.env
+            .insert("HOME".to_string(), "/home/user".to_string());
         self.env.insert("USER".to_string(), "user".to_string());
-        self.env.insert("SHELL".to_string(), "/bin/bash".to_string());
-        self.env.insert("TERM".to_string(), "xterm-256color".to_string());
+        self.env
+            .insert("SHELL".to_string(), "/bin/bash".to_string());
+        self.env
+            .insert("TERM".to_string(), "xterm-256color".to_string());
         self.env.insert("PWD".to_string(), "/".to_string());
-        
+
         // Limpiar aliases
         self.aliases.clear();
-        
+
         // Limpiar historial
         self.history.clear();
-        
+
         // Resetear exit code
         self.last_exit_code = 0;
-        
+
         // Crear nuevo terminal limpio
         self.terminal = Terminal::new(8192);
         self.terminal.write_banner();
@@ -125,10 +128,12 @@ impl TerminalSession {
         self.last_exit_code = result.exit_code;
 
         if !result.stdout.is_empty() {
-            self.terminal.write_stdout(result.pid, String::from_utf8_lossy(&result.stdout));
+            self.terminal
+                .write_stdout(result.pid, String::from_utf8_lossy(&result.stdout));
         }
         if !result.stderr.is_empty() {
-            self.terminal.write_stderr(result.pid, String::from_utf8_lossy(&result.stderr));
+            self.terminal
+                .write_stderr(result.pid, String::from_utf8_lossy(&result.stderr));
         }
 
         self.terminal.write_prompt(&self.cwd);
@@ -357,7 +362,7 @@ impl TerminalSession {
         Ok(CommandAst::Simple(Command {
             program,
             args: expanded_args,
-            env: vec![],           // ← CORREGIDO: Vec<(String,String)>
+            env: vec![], // ← CORREGIDO: Vec<(String,String)>
         }))
     }
 
@@ -368,9 +373,16 @@ impl TerminalSession {
 
         while i < tokens.len() {
             match &tokens[i] {
-                Token::RedirectOut | Token::RedirectAppend | Token::RedirectIn | Token::RedirectErr => {
+                Token::RedirectOut
+                | Token::RedirectAppend
+                | Token::RedirectIn
+                | Token::RedirectErr => {
                     let append = matches!(tokens[i], Token::RedirectAppend);
-                    let fd = if matches!(tokens[i], Token::RedirectErr) { 2 } else { 1 };
+                    let fd = if matches!(tokens[i], Token::RedirectErr) {
+                        2
+                    } else {
+                        1
+                    };
                     i += 1;
                     if i < tokens.len() {
                         if let Token::Word(path) = &tokens[i] {
@@ -584,7 +596,12 @@ impl TerminalSession {
             RuntimeTarget::Pnpm => Box::new(crate::runtime::npm::PackageManagerRuntime::pnpm()),
             RuntimeTarget::Yarn => Box::new(crate::runtime::npm::PackageManagerRuntime::yarn()),
             RuntimeTarget::Shell => Box::new(crate::runtime::shell_builtins::ShellBuiltins),
-            _ => return Err(RunboxError::Shell(format!("{}: command not found", cmd.program))),
+            _ => {
+                return Err(RunboxError::Shell(format!(
+                    "{}: command not found",
+                    cmd.program
+                )));
+            }
         };
 
         let mut runtime_cmd = cmd.clone();
@@ -596,7 +613,9 @@ impl TerminalSession {
         runtime_cmd.env.retain(|(k, _)| k != "PWD");
         runtime_cmd.env.push(("PWD".to_string(), self.cwd.clone()));
 
-        let pid = self.pm.spawn(&runtime_cmd.program, runtime_cmd.args.clone());
+        let pid = self
+            .pm
+            .spawn(&runtime_cmd.program, runtime_cmd.args.clone());
         let output = runtime.exec(&runtime_cmd, &mut self.vfs, &mut self.pm)?;
         self.pm.exit(pid, output.exit_code)?;
 
@@ -629,17 +648,30 @@ impl TerminalSession {
                     exit_code: 0,
                 });
             }
-            return Ok(CommandResult::error(0, "cat: missing file operand\n".to_string()));
+            return Ok(CommandResult::error(
+                0,
+                "cat: missing file operand\n".to_string(),
+            ));
         }
         let mut stdout = Vec::new();
         for file in &cmd.args {
             let resolved = self.resolve_path(file);
             match self.vfs.read(&resolved) {
                 Ok(content) => stdout.extend_from_slice(&content),
-                Err(_) => return Ok(CommandResult::error(0, format!("cat: {}: No such file or directory\n", file))),
+                Err(_) => {
+                    return Ok(CommandResult::error(
+                        0,
+                        format!("cat: {}: No such file or directory\n", file),
+                    ));
+                }
             }
         }
-        Ok(CommandResult { pid: 0, stdout, stderr: vec![], exit_code: 0 })
+        Ok(CommandResult {
+            pid: 0,
+            stdout,
+            stderr: vec![],
+            exit_code: 0,
+        })
     }
 
     fn builtin_ls(&self, cmd: &Command) -> Result<CommandResult> {
@@ -682,7 +714,10 @@ impl TerminalSession {
             } else {
                 return Ok(CommandResult::error(
                     0,
-                    format!("ls: cannot access '{}': No such file or directory\n", target),
+                    format!(
+                        "ls: cannot access '{}': No such file or directory\n",
+                        target
+                    ),
                 ));
             }
         }
@@ -695,7 +730,8 @@ impl TerminalSession {
         })
     }
 
-    fn builtin_touch(&mut self, cmd: &Command) -> Result<CommandResult> {   // ← CORREGIDO: &mut self
+    fn builtin_touch(&mut self, cmd: &Command) -> Result<CommandResult> {
+        // ← CORREGIDO: &mut self
         for file in &cmd.args {
             let resolved = self.resolve_path(file);
             self.vfs.write(&resolved, vec![])?;
@@ -710,24 +746,34 @@ impl TerminalSession {
                 continue;
             }
             let resolved = self.resolve_path(dir);
-            
+
             // Usar el método mkdir nativo del VFS
             self.vfs.mkdir(&resolved)?;
-            
+
             created += 1;
         }
         if created == 0 {
-            return Ok(CommandResult::error(0, "mkdir: missing operand\n".to_string()));
+            return Ok(CommandResult::error(
+                0,
+                "mkdir: missing operand\n".to_string(),
+            ));
         }
         Ok(CommandResult::success(0))
     }
 
     fn builtin_grep(&self, cmd: &Command, stdin: Option<&[u8]>) -> Result<CommandResult> {
         if cmd.args.is_empty() {
-            return Ok(CommandResult::error(0, "grep: missing pattern\n".to_string()));
+            return Ok(CommandResult::error(
+                0,
+                "grep: missing pattern\n".to_string(),
+            ));
         }
         let pattern = &cmd.args[0];
-        let files = if cmd.args.len() > 1 { &cmd.args[1..] } else { &[] };
+        let files = if cmd.args.len() > 1 {
+            &cmd.args[1..]
+        } else {
+            &[]
+        };
         let mut stdout = Vec::new();
 
         if files.is_empty() {
@@ -740,7 +786,12 @@ impl TerminalSession {
                     }
                 }
             }
-            return Ok(CommandResult { pid: 0, stdout, stderr: vec![], exit_code: 0 });
+            return Ok(CommandResult {
+                pid: 0,
+                stdout,
+                stderr: vec![],
+                exit_code: 0,
+            });
         }
 
         for file in files {
@@ -755,7 +806,12 @@ impl TerminalSession {
                 }
             }
         }
-        Ok(CommandResult { pid: 0, stdout, stderr: vec![], exit_code: 0 })
+        Ok(CommandResult {
+            pid: 0,
+            stdout,
+            stderr: vec![],
+            exit_code: 0,
+        })
     }
 
     // ==================== BUILTINS YA EXISTENTES ====================
@@ -768,7 +824,10 @@ impl TerminalSession {
             self.env.insert("PWD".to_string(), self.cwd.clone());
             Ok(CommandResult::success(0))
         } else {
-            Ok(CommandResult::error(0, format!("cd: {}: No such file or directory\n", path)))
+            Ok(CommandResult::error(
+                0,
+                format!("cd: {}: No such file or directory\n", path),
+            ))
         }
     }
 
@@ -896,7 +955,11 @@ impl TerminalSession {
         Ok(final_result)
     }
 
-    fn execute_with_redirect(&mut self, node: &CommandAst, redirects: &[Redirect]) -> Result<CommandResult> {
+    fn execute_with_redirect(
+        &mut self,
+        node: &CommandAst,
+        redirects: &[Redirect],
+    ) -> Result<CommandResult> {
         let mut result = self.execute_ast(node)?;
 
         for redirect in redirects {
@@ -940,7 +1003,7 @@ impl TerminalSession {
     pub fn get_state(&self) -> SessionState {
         // 🔧 CORRECCIÓN: Crear el estado de forma más segura para evitar memory access issues
         let history_vec: Vec<String> = self.history.iter().map(|s| s.clone()).collect();
-        
+
         SessionState {
             cwd: self.cwd.clone(),
             env: self.env.clone(),
@@ -951,7 +1014,7 @@ impl TerminalSession {
 
     // ==================== VFS WRAPPER METHODS ====================
     // Estos métodos encapsulan el acceso al VFS para evitar problemas de borrowing en WASM
-    
+
     pub fn vfs_write(&mut self, path: &str, content: Vec<u8>) -> Result<()> {
         self.vfs.write(path, content)
     }
@@ -1004,7 +1067,9 @@ impl TerminalSession {
 }
 
 impl Default for TerminalSession {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ==================== TIPOS ====================
@@ -1045,15 +1110,27 @@ pub struct CommandResult {
 
 impl CommandResult {
     pub fn success(pid: Pid) -> Self {
-        Self { pid, stdout: vec![], stderr: vec![], exit_code: 0 }
+        Self {
+            pid,
+            stdout: vec![],
+            stderr: vec![],
+            exit_code: 0,
+        }
     }
     pub fn error(pid: Pid, message: String) -> Self {
-        Self { pid, stdout: vec![], stderr: message.into_bytes(), exit_code: 1 }
+        Self {
+            pid,
+            stdout: vec![],
+            stderr: message.into_bytes(),
+            exit_code: 1,
+        }
     }
 }
 
 impl Default for CommandResult {
-    fn default() -> Self { Self::success(0) }
+    fn default() -> Self {
+        Self::success(0)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1070,11 +1147,17 @@ fn normalize_path(path: &str) -> String {
     for part in path.split('/') {
         match part {
             "" | "." => {}
-            ".." => { parts.pop(); }
+            ".." => {
+                parts.pop();
+            }
             p => parts.push(p),
         }
     }
-    if parts.is_empty() { "/".to_string() } else { format!("/{}", parts.join("/")) }
+    if parts.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", parts.join("/"))
+    }
 }
 
 fn combine_results(mut left: CommandResult, right: CommandResult) -> CommandResult {
@@ -1112,7 +1195,13 @@ mod tests {
         let mut session = TerminalSession::new();
 
         assert_eq!(session.exec("mkdir -p /project/src").unwrap().exit_code, 0);
-        assert_eq!(session.exec("touch /project/src/index.js").unwrap().exit_code, 0);
+        assert_eq!(
+            session
+                .exec("touch /project/src/index.js")
+                .unwrap()
+                .exit_code,
+            0
+        );
 
         let ls_all = session.exec("ls -la /project").unwrap();
         assert_eq!(ls_all.exit_code, 0);
@@ -1142,7 +1231,9 @@ mod tests {
         assert_eq!(and_result.exit_code, 0);
         assert_eq!(text(&and_result.stdout), "success\nchained\n");
 
-        let or_result = session.exec("ls /nonexistent.txt || echo File not found").unwrap();
+        let or_result = session
+            .exec("ls /nonexistent.txt || echo File not found")
+            .unwrap();
         assert_eq!(or_result.exit_code, 0);
         assert!(text(&or_result.stdout).contains("File not found"));
         assert!(text(&or_result.stderr).contains("/nonexistent.txt"));
@@ -1193,7 +1284,10 @@ mod tests {
 
         assert_eq!(session.exec("git init").unwrap().exit_code, 0);
         assert_eq!(
-            session.exec("git config user.name \"Test User\"").unwrap().exit_code,
+            session
+                .exec("git config user.name \"Test User\"")
+                .unwrap()
+                .exit_code,
             0
         );
         assert_eq!(

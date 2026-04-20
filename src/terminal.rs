@@ -148,10 +148,7 @@ impl Terminal {
     }
 
     pub fn write_prompt(&mut self, cwd: &str) {
-        let prompt = format!(
-            "\x1b[32m{}\x1b[0m:\x1b[34m{cwd}\x1b[0m$ ",
-            self.prompt
-        );
+        let prompt = format!("\x1b[32m{}\x1b[0m:\x1b[34m{cwd}\x1b[0m$ ", self.prompt);
         self.push_output(0, prompt, Stream::Stdout);
     }
 

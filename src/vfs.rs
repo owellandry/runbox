@@ -225,7 +225,7 @@ impl Vfs {
     pub fn mkdir(&mut self, path: &str) -> Result<()> {
         let parts = split_path(path);
         mkdir_recursive(&mut self.root, &parts)?;
-        
+
         // No emitir cambios en archivos internos de .git
         if !path.starts_with("/.git/") {
             self.pending_changes.push(FileChange {
