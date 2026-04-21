@@ -1913,7 +1913,7 @@ dependencies = [
 
 [[package]]
 name = "runbox"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "anyhow",
  "boa_engine",

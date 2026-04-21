@@ -509,10 +509,27 @@ fn collect_npm_package_recursive(
     // Safety limits: max 8 levels deep, max 500 files per package
     const MAX_DEPTH: usize = 8;
     const MAX_FILES: usize = 500;
+    // 1.5 MB limit — must accommodate lodash.js (~540KB), d3.js (~550KB), etc.
+    const MAX_FILE_SIZE: usize = 1_500_000;
 
     if depth > MAX_DEPTH || out.len() > MAX_FILES {
         return;
     }
+
+    // Determine the package's main entry file so we never skip it
+    let main_entry = {
+        let pkg_json_path = format!("{pkg_root}/package.json");
+        vfs.read(&pkg_json_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
+            .and_then(|pj| {
+                pj.get("main")
+                    .or_else(|| pj.get("module"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim_start_matches("./").to_string())
+            })
+            .unwrap_or_default()
+    };
 
     let entries = match vfs.list(current_dir) {
         Ok(e) => e,
@@ -580,16 +597,18 @@ fn collect_npm_package_recursive(
                 continue;
             }
 
-            // Skip files larger than 512KB — they're unlikely to be needed and
-            // can cause eval() memory pressure
-            if bytes.len() > 512_000 {
+            // Check if this is the package's main entry file
+            let rel = full_path
+                .strip_prefix(&format!("{pkg_root}/"))
+                .unwrap_or(&entry);
+            let is_main_entry = !main_entry.is_empty() && rel == main_entry;
+
+            // Skip large files UNLESS it's the main entry (lodash.js ~540KB, d3.js ~550KB)
+            if bytes.len() > MAX_FILE_SIZE || (!is_main_entry && bytes.len() > 512_000) {
                 continue;
             }
 
             if let Ok(content) = std::str::from_utf8(bytes) {
-                let rel = full_path
-                    .strip_prefix(&format!("{pkg_root}/"))
-                    .unwrap_or(&entry);
                 let key = format!("{pkg_name}/{rel}");
                 out.insert(key, content.to_string());
             }
