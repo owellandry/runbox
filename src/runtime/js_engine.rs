@@ -1003,18 +1003,78 @@ fn eval_js(source: &str) -> JsOutput {
             if (cleanMod === 'string_decoder') return { StringDecoder: function() { this.write = function(b) { return typeof b === 'string' ? b : new TextDecoder().decode(b); }; this.end = function() { return ''; }; } };
             if (cleanMod === 'zlib') return { createGzip: () => __stream_polyfill, createGunzip: () => __stream_polyfill, gzip: (b, cb) => cb && cb(null, b), gunzip: (b, cb) => cb && cb(null, b) };
 
-            // React y amigos — expuestos por el host (DemoPage) en globalThis
+            // React y amigos — expuestos por el host (DemoPage) en globalThis.
+            // Si no están en globalThis, usamos un stub funcional completo
+            // para que el código que require('react') pero no renderiza al DOM siga funcionando.
             if (cleanMod === 'react') {
-                const R = globalThis.__runbox_react;
-                if (R) return R;
+                if (globalThis.__runbox_react) return globalThis.__runbox_react;
+                // Primero intentar desde VFS (por si se instaló via tarball)
+                if (globalThis.__vfs_modules && (globalThis.__vfs_modules['react/index.js'] || globalThis.__vfs_modules['react/cjs/react.production.min.js'])) {
+                    try { return __vfs_require('react'); } catch(e) {}
+                }
+                // Stub funcional mínimo de React
+                if (!globalThis.__runbox_react_stub) {
+                    const createElement = (type, props, ...children) => ({ type, props: props || {}, children });
+                    const Component = function(props) { this.props = props; this.state = {}; };
+                    Component.prototype.setState = function(s) { Object.assign(this.state, typeof s === 'function' ? s(this.state) : s); };
+                    Component.prototype.render = function() { return null; };
+                    globalThis.__runbox_react_stub = {
+                        createElement,
+                        Component,
+                        PureComponent: Component,
+                        Fragment: 'Fragment',
+                        createRef: () => ({ current: null }),
+                        useRef: (v) => ({ current: v }),
+                        useState: (init) => { const v = typeof init === 'function' ? init() : init; return [v, () => {}]; },
+                        useEffect: () => {},
+                        useLayoutEffect: () => {},
+                        useCallback: (fn) => fn,
+                        useMemo: (fn) => fn(),
+                        useContext: () => undefined,
+                        useReducer: (r, init) => [init, () => {}],
+                        createContext: (def) => ({ Provider: 'Provider', Consumer: 'Consumer', _currentValue: def }),
+                        forwardRef: (fn) => fn,
+                        memo: (fn) => fn,
+                        cloneElement: (el, props) => ({ ...el, props: { ...el.props, ...props } }),
+                        isValidElement: (el) => el != null && typeof el === 'object' && 'type' in el,
+                        Children: { map: (c, fn) => (Array.isArray(c) ? c : [c]).map(fn), forEach: (c, fn) => (Array.isArray(c) ? c : [c]).forEach(fn), count: (c) => (Array.isArray(c) ? c.length : c ? 1 : 0), only: (c) => c, toArray: (c) => Array.isArray(c) ? c : [c] },
+                        version: '18.2.0',
+                        default: undefined,
+                    };
+                    globalThis.__runbox_react_stub.default = globalThis.__runbox_react_stub;
+                }
+                return globalThis.__runbox_react_stub;
             }
             if (cleanMod === 'react-dom' || cleanMod === 'react-dom/client') {
-                const R = globalThis.__runbox_reactdom;
-                if (R) return R;
+                if (globalThis.__runbox_reactdom) return globalThis.__runbox_reactdom;
+                // Stub funcional de ReactDOM
+                if (!globalThis.__runbox_reactdom_stub) {
+                    globalThis.__runbox_reactdom_stub = {
+                        render: () => {},
+                        createRoot: () => ({ render: () => {}, unmount: () => {} }),
+                        hydrateRoot: () => ({ render: () => {}, unmount: () => {} }),
+                        unmountComponentAtNode: () => {},
+                        findDOMNode: () => null,
+                        createPortal: (children) => children,
+                        flushSync: (fn) => fn(),
+                        version: '18.2.0',
+                    };
+                    globalThis.__runbox_reactdom_stub.default = globalThis.__runbox_reactdom_stub;
+                }
+                return globalThis.__runbox_reactdom_stub;
             }
             if (cleanMod === 'react-dom/server') {
-                const R = globalThis.__runbox_reactdom_server;
-                if (R) return R;
+                if (globalThis.__runbox_reactdom_server) return globalThis.__runbox_reactdom_server;
+                if (!globalThis.__runbox_reactdom_server_stub) {
+                    globalThis.__runbox_reactdom_server_stub = {
+                        renderToString: () => '',
+                        renderToStaticMarkup: () => '',
+                        renderToNodeStream: () => ({ pipe: () => {} }),
+                        renderToStaticNodeStream: () => ({ pipe: () => {} }),
+                        renderToPipeableStream: (el, opts) => { if (opts && opts.onShellReady) opts.onShellReady(); return { pipe: () => {} }; },
+                    };
+                }
+                return globalThis.__runbox_reactdom_server_stub;
             }
             // Cargar desde VFS node_modules (cualquier paquete instalado via npm install)
             return __vfs_require(cleanMod);
