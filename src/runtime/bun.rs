@@ -127,7 +127,16 @@ fn spawn_bun(
             return Ok(output);
         }
 
-        // 2. Fallback: boa_engine si el archivo está en VFS
+        // 2. Intentar node del sistema (tiene require() nativo)
+        if !file_path.is_empty() {
+            if let Ok(output) = try_spawn_system_node(cmd, vfs, file_path) {
+                let pid = pm.spawn("node", cmd.args.clone());
+                pm.exit(pid, output.exit_code)?;
+                return Ok(output);
+            }
+        }
+
+        // 3. Fallback: boa_engine si el archivo está en VFS
         if !file_path.is_empty()
             && let Ok(source) = vfs.read(file_path)
         {
@@ -183,6 +192,39 @@ fn try_spawn_system_bun(cmd: &Command, vfs: &mut Vfs) -> std::io::Result<ExecOut
 
     let output = SysCmd::new("bun")
         .args(&cmd.args)
+        .current_dir(tmp.path())
+        .output()?;
+
+    Ok(ExecOutput {
+        stdout: output.stdout,
+        stderr: output.stderr,
+        exit_code: output.status.code().unwrap_or(1),
+    })
+}
+
+/// Intenta ejecutar con `node` del sistema, materializando el VFS a un tmpdir.
+/// Soporta `require()` nativo y `node_modules/`.
+#[cfg(not(target_arch = "wasm32"))]
+fn try_spawn_system_node(
+    cmd: &Command,
+    vfs: &mut Vfs,
+    file_path: &str,
+) -> std::io::Result<ExecOutput> {
+    use crate::network::materialize_vfs;
+    use std::process::Command as SysCmd;
+    use tempfile::TempDir;
+
+    // Verificar que node existe
+    SysCmd::new("node").arg("--version").output()?;
+
+    let tmp = TempDir::new()?;
+    materialize_vfs(vfs, tmp.path()).unwrap_or_default();
+
+    // Construir la ruta del archivo relativa al tmpdir
+    let rel_path = file_path.trim_start_matches('/');
+    let output = SysCmd::new("node")
+        .arg(rel_path)
+        .args(cmd.args.iter().skip(2)) // args después del filename
         .current_dir(tmp.path())
         .output()?;
 

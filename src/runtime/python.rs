@@ -96,6 +96,8 @@ fn try_spawn_system_python(cmd: &Command, vfs: &mut Vfs) -> std::io::Result<Exec
     };
 
     let output = SysCmd::new(binary)
+        .arg("-W")
+        .arg("ignore::DeprecationWarning")
         .args(&cmd.args)
         .current_dir(tmp.path())
         .output()?;
