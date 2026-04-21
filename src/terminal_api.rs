@@ -378,10 +378,10 @@ impl TerminalSession {
                 | Token::RedirectIn
                 | Token::RedirectErr => {
                     let append = matches!(tokens[i], Token::RedirectAppend);
-                    let fd = if matches!(tokens[i], Token::RedirectErr) {
-                        2
-                    } else {
-                        1
+                    let fd = match &tokens[i] {
+                        Token::RedirectErr => 2,
+                        Token::RedirectIn => 0,
+                        _ => 1, // RedirectOut, RedirectAppend
                     };
                     i += 1;
                     if i < tokens.len()

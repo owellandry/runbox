@@ -1062,6 +1062,7 @@ fn git_remote(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<E
                 pm.exit(pid, 0)?;
                 return Ok(ok_out(""));
             }
+            pm.exit(pid, 1)?;
             Ok(err_out("git remote add <name> <url>"))
         }
         "remove" | "rm" => {

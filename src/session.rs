@@ -365,6 +365,17 @@ impl SessionManager {
             return Err(AccessOutcome::Expired);
         }
 
+        if token.max_uses > 0 && token.use_count >= token.max_uses {
+            self.access_log.log(
+                token_str,
+                now_ms,
+                client_hint,
+                user_agent,
+                AccessOutcome::Forbidden,
+            );
+            return Err(AccessOutcome::Forbidden);
+        }
+
         if !token.permission.allows(action) {
             self.access_log.log(
                 token_str,

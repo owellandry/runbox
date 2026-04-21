@@ -165,7 +165,7 @@ fn pip_install(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<
 
 fn pip_install_requirements(
     cmd: &Command,
-    vfs: &Vfs,
+    vfs: &mut Vfs,
     pm: &mut ProcessManager,
 ) -> Result<ExecOutput> {
     let req_file = cmd
@@ -191,6 +191,18 @@ fn pip_install_requirements(
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
+
+    // Registrar paquetes en site-packages del VFS
+    for pkg_line in &packages {
+        let (name, ver) = pkg_line
+            .split_once("==")
+            .map(|(n, v)| (n, v.to_string()))
+            .unwrap_or((*pkg_line, "latest".to_string()));
+        let _ = vfs.write(
+            &format!("/site-packages/{name}-{ver}.dist-info/METADATA"),
+            format!("Name: {name}\nVersion: {ver}\n").into_bytes(),
+        );
+    }
 
     let pid = pm.spawn("pip", cmd.args.clone());
     pm.exit(pid, 0)?;
@@ -228,7 +240,13 @@ fn pip_show(cmd: &Command, vfs: &Vfs, pm: &mut ProcessManager) -> Result<ExecOut
         .ok_or_else(|| RunboxError::Runtime("pip show: specify a package".into()))?;
     let pid = pm.spawn("pip", cmd.args.clone());
     pm.exit(pid, 0)?;
-    if let Ok(meta) = vfs.read(&format!("/site-packages/{pkg}-latest.dist-info/METADATA")) {
+    let found_meta = vfs
+        .list("/site-packages")
+        .unwrap_or_default()
+        .iter()
+        .find(|e| e.starts_with(&format!("{pkg}-")) && e.ends_with(".dist-info"))
+        .and_then(|dir| vfs.read(&format!("/site-packages/{dir}/METADATA")).ok());
+    if let Some(meta) = found_meta {
         Ok(ok_out(String::from_utf8_lossy(meta)))
     } else {
         Ok(ExecOutput {
@@ -246,7 +264,14 @@ fn pip_freeze(vfs: &Vfs, pm: &mut ProcessManager, cmd: &Command) -> Result<ExecO
     let freeze = packages
         .iter()
         .filter(|p| p.ends_with(".dist-info"))
-        .map(|p| p.replace(".dist-info", "").replace('-', "=="))
+        .map(|p| {
+            let s = p.replace(".dist-info", "");
+            if let Some(pos) = s.rfind('-') {
+                format!("{}=={}", &s[..pos], &s[pos + 1..])
+            } else {
+                s
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
     Ok(ok_out(freeze))

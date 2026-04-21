@@ -12,7 +12,11 @@
 /// - setTimeout/setInterval/clearTimeout/clearInterval
 /// - Web APIs: URL, URLSearchParams, TextEncoder, TextDecoder, crypto
 /// - Node.js built-ins: path, fs (VFS-mapped), process, Buffer
-use std::collections::HashMap;
+mod polyfills;
+mod typescript;
+
+pub use polyfills::{PolyfillGenerator, node_builtin_modules};
+pub use typescript::strip_typescript;
 
 // ── Resultado de ejecución ────────────────────────────────────────────────────
 
@@ -21,288 +25,6 @@ pub struct JsOutput {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
-}
-
-// ── Enhanced Polyfill Generation ──────────────────────────────────────────────
-
-/// Generates enhanced polyfill scripts for the JS engine.
-/// These provide Web APIs and Node.js builtins in the sandbox.
-pub struct PolyfillGenerator;
-
-impl PolyfillGenerator {
-    /// Generate async/await polyfill wrapper.
-    pub fn async_await() -> &'static str {
-        r#"
-        // Async/await support — wraps async code in a Promise executor
-        if (!globalThis.__runbox_async_init) {
-            globalThis.__runbox_async_init = true;
-            globalThis.__runbox_promises = [];
-            const origThen = Promise.prototype.then;
-            // Track promises for synchronous waiting
-            globalThis.__awaitAll = async function() {
-                await Promise.allSettled(globalThis.__runbox_promises);
-            };
-        }
-        "#
-    }
-
-    /// Generate fetch() polyfill.
-    pub fn fetch_polyfill() -> &'static str {
-        r#"
-        if (!globalThis.__runbox_fetch_init) {
-            globalThis.__runbox_fetch_init = true;
-            // Enhanced fetch that works over RunBox network layer
-            if (typeof globalThis.fetch === 'undefined') {
-                globalThis.fetch = function(url, opts) {
-                    return new Promise(function(resolve, reject) {
-                        try {
-                            const xhr = new XMLHttpRequest();
-                            xhr.open((opts && opts.method) || 'GET', url, true);
-                            if (opts && opts.headers) {
-                                Object.entries(opts.headers).forEach(function([k, v]) {
-                                    xhr.setRequestHeader(k, v);
-                                });
-                            }
-                            xhr.onload = function() {
-                                resolve({
-                                    ok: xhr.status >= 200 && xhr.status < 300,
-                                    status: xhr.status,
-                                    statusText: xhr.statusText,
-                                    text: function() { return Promise.resolve(xhr.responseText); },
-                                    json: function() { return Promise.resolve(JSON.parse(xhr.responseText)); },
-                                    headers: { get: function(h) { return xhr.getResponseHeader(h); } },
-                                });
-                            };
-                            xhr.onerror = function() { reject(new Error('Network request failed')); };
-                            xhr.send(opts && opts.body);
-                        } catch(e) { reject(e); }
-                    });
-                };
-            }
-        }
-        "#
-    }
-
-    /// Generate timer polyfills (setTimeout, setInterval, clearTimeout, clearInterval).
-    pub fn timers() -> &'static str {
-        r#"
-        if (!globalThis.__runbox_timers_init) {
-            globalThis.__runbox_timers_init = true;
-            var __timerId = 1;
-            var __timers = {};
-            if (typeof globalThis.setTimeout === 'undefined') {
-                globalThis.setTimeout = function(fn, ms) {
-                    var id = __timerId++;
-                    __timers[id] = { fn: fn, type: 'timeout' };
-                    // In sandbox, execute immediately (no real async)
-                    try { fn(); } catch(e) {}
-                    return id;
-                };
-            }
-            if (typeof globalThis.clearTimeout === 'undefined') {
-                globalThis.clearTimeout = function(id) { delete __timers[id]; };
-            }
-            if (typeof globalThis.setInterval === 'undefined') {
-                globalThis.setInterval = function(fn, ms) {
-                    var id = __timerId++;
-                    __timers[id] = { fn: fn, type: 'interval', ms: ms };
-                    return id;
-                };
-            }
-            if (typeof globalThis.clearInterval === 'undefined') {
-                globalThis.clearInterval = function(id) { delete __timers[id]; };
-            }
-        }
-        "#
-    }
-
-    /// Generate Web API polyfills (URL, URLSearchParams, TextEncoder, TextDecoder, crypto).
-    pub fn web_apis() -> &'static str {
-        r#"
-        if (!globalThis.__runbox_webapis_init) {
-            globalThis.__runbox_webapis_init = true;
-
-            // TextEncoder / TextDecoder
-            if (typeof globalThis.TextEncoder === 'undefined') {
-                globalThis.TextEncoder = function() {};
-                globalThis.TextEncoder.prototype.encode = function(str) {
-                    var arr = [];
-                    for (var i = 0; i < str.length; i++) {
-                        var c = str.charCodeAt(i);
-                        if (c < 128) arr.push(c);
-                        else if (c < 2048) { arr.push(192 | (c >> 6)); arr.push(128 | (c & 63)); }
-                        else { arr.push(224 | (c >> 12)); arr.push(128 | ((c >> 6) & 63)); arr.push(128 | (c & 63)); }
-                    }
-                    return new Uint8Array(arr);
-                };
-            }
-            if (typeof globalThis.TextDecoder === 'undefined') {
-                globalThis.TextDecoder = function() {};
-                globalThis.TextDecoder.prototype.decode = function(buf) {
-                    var bytes = new Uint8Array(buf);
-                    var str = '';
-                    for (var i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-                    return str;
-                };
-            }
-
-            // Crypto — basic random values
-            if (typeof globalThis.crypto === 'undefined') {
-                globalThis.crypto = {
-                    getRandomValues: function(arr) {
-                        for (var i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256);
-                        return arr;
-                    },
-                    randomUUID: function() {
-                        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                            var r = Math.random() * 16 | 0;
-                            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-                        });
-                    }
-                };
-            }
-        }
-        "#
-    }
-
-    /// Generate Node.js built-in polyfills (enhanced path, fs, process, Buffer).
-    pub fn node_builtins() -> &'static str {
-        r#"
-        if (!globalThis.__runbox_node_init) {
-            globalThis.__runbox_node_init = true;
-
-            // Enhanced path module
-            if (!globalThis.__path_enhanced) {
-                globalThis.__path_enhanced = {
-                    join: function() { return Array.from(arguments).join('/').replace(/\/+/g, '/'); },
-                    resolve: function() { return '/' + Array.from(arguments).join('/').replace(/\/+/g, '/'); },
-                    extname: function(p) { var m = p.match(/\.[^.]+$/); return m ? m[0] : ''; },
-                    basename: function(p, ext) { var b = p.split('/').pop(); return ext ? b.replace(ext, '') : b; },
-                    dirname: function(p) { return p.split('/').slice(0, -1).join('/') || '/'; },
-                    sep: '/',
-                    delimiter: ':',
-                    isAbsolute: function(p) { return p.startsWith('/'); },
-                    normalize: function(p) {
-                        var parts = p.split('/').filter(Boolean);
-                        var result = [];
-                        for (var i = 0; i < parts.length; i++) {
-                            if (parts[i] === '..') result.pop();
-                            else if (parts[i] !== '.') result.push(parts[i]);
-                        }
-                        return (p.startsWith('/') ? '/' : '') + result.join('/');
-                    },
-                    relative: function(from, to) {
-                        var f = from.split('/').filter(Boolean);
-                        var t = to.split('/').filter(Boolean);
-                        var i = 0;
-                        while (i < f.length && i < t.length && f[i] === t[i]) i++;
-                        var ups = f.length - i;
-                        var result = [];
-                        for (var j = 0; j < ups; j++) result.push('..');
-                        return result.concat(t.slice(i)).join('/');
-                    },
-                    parse: function(p) {
-                        var dir = p.split('/').slice(0, -1).join('/') || '/';
-                        var base = p.split('/').pop() || '';
-                        var ext = base.match(/\.[^.]+$/);
-                        return { root: '/', dir: dir, base: base, ext: ext ? ext[0] : '', name: ext ? base.slice(0, -ext[0].length) : base };
-                    },
-                    format: function(obj) { return (obj.dir || '') + '/' + (obj.base || obj.name + (obj.ext || '')); },
-                };
-            }
-
-            // Enhanced process module
-            if (!globalThis.__process_enhanced) {
-                globalThis.__process_enhanced = {
-                    env: { NODE_ENV: 'production', HOME: '/home', PATH: '/usr/bin' },
-                    argv: ['node', 'index.js'],
-                    version: 'v20.0.0',
-                    versions: { node: '20.0.0' },
-                    platform: 'linux',
-                    arch: 'wasm32',
-                    pid: 1,
-                    ppid: 0,
-                    cwd: function() { return '/'; },
-                    chdir: function() {},
-                    exit: function(code) { throw new Error('__EXIT__:' + (code || 0)); },
-                    stdout: { write: function(s) { console.log(String(s)); } },
-                    stderr: { write: function(s) { console.error(String(s)); } },
-                    hrtime: { bigint: function() { return BigInt(Date.now()) * BigInt(1000000); } },
-                    nextTick: function(fn) { Promise.resolve().then(fn); },
-                    memoryUsage: function() { return { rss: 0, heapTotal: 0, heapUsed: 0, external: 0 }; },
-                };
-            }
-
-            // Buffer polyfill (basic)
-            if (typeof globalThis.Buffer === 'undefined') {
-                globalThis.Buffer = {
-                    from: function(data, enc) {
-                        if (typeof data === 'string') {
-                            if (enc === 'base64') {
-                                try { return new Uint8Array(atob(data).split('').map(function(c) { return c.charCodeAt(0); })); }
-                                catch(e) { return new Uint8Array(0); }
-                            }
-                            return new TextEncoder().encode(data);
-                        }
-                        return new Uint8Array(data);
-                    },
-                    alloc: function(size) { return new Uint8Array(size); },
-                    isBuffer: function(obj) { return obj instanceof Uint8Array; },
-                    concat: function(list) {
-                        var total = list.reduce(function(s, b) { return s + b.length; }, 0);
-                        var result = new Uint8Array(total);
-                        var offset = 0;
-                        list.forEach(function(b) { result.set(b, offset); offset += b.length; });
-                        return result;
-                    },
-                };
-            }
-        }
-        "#
-    }
-
-    /// Get all polyfills combined.
-    pub fn all() -> String {
-        format!(
-            "{}{}{}{}{}",
-            Self::async_await(),
-            Self::fetch_polyfill(),
-            Self::timers(),
-            Self::web_apis(),
-            Self::node_builtins(),
-        )
-    }
-
-    /// List available polyfills as JSON.
-    pub fn list() -> String {
-        serde_json::json!({
-            "polyfills": [
-                {"name": "async_await", "description": "Promise-based async/await support"},
-                {"name": "fetch", "description": "fetch() API over RunBox network layer"},
-                {"name": "timers", "description": "setTimeout/setInterval/clearTimeout/clearInterval"},
-                {"name": "web_apis", "description": "URL, URLSearchParams, TextEncoder, TextDecoder, crypto"},
-                {"name": "node_builtins", "description": "path, fs, process, Buffer polyfills"},
-            ]
-        }).to_string()
-    }
-}
-
-/// Registry of available Node.js built-in modules for require() resolution.
-pub fn node_builtin_modules() -> HashMap<&'static str, &'static str> {
-    let mut m = HashMap::new();
-    m.insert("path", "Path manipulation utilities");
-    m.insert("fs", "File system (VFS-mapped)");
-    m.insert("os", "Operating system info");
-    m.insert("http", "HTTP server/client");
-    m.insert("url", "URL parsing");
-    m.insert("crypto", "Cryptographic functions");
-    m.insert("buffer", "Buffer utilities");
-    m.insert("events", "Event emitter");
-    m.insert("stream", "Stream interface");
-    m.insert("util", "Utility functions");
-    m.insert("querystring", "Query string parsing");
-    m.insert("assert", "Assertions");
-    m
 }
 
 // ── API pública ───────────────────────────────────────────────────────────────
@@ -325,216 +47,6 @@ pub fn run(source: &str, is_typescript: bool) -> JsOutput {
     };
 
     eval_js(&js)
-}
-
-// ── TypeScript type stripper ──────────────────────────────────────────────────
-//
-// Elimina las construcciones propias de TypeScript sin tocar el código JS.
-// Cubre: tipos inline, interfaces, type aliases, enums, generics, decorators,
-// access modifiers, non-null assertions, satisfies.
-
-pub fn strip_typescript(ts: &str) -> std::result::Result<String, String> {
-    let mut out = String::with_capacity(ts.len());
-    let mut str_ch = '"'; // delimitador de la string actual
-
-    // Línea por línea primero para eliminar declaraciones de nivel superior
-    let lines: Vec<&str> = ts.lines().collect();
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i].trim_start();
-
-        // interface Foo { ... }
-        if line.starts_with("interface ") || line.starts_with("declare ") {
-            // Saltar hasta que la llave de cierre balance llegue a 0
-            let mut d = 0i32;
-            loop {
-                let l = lines[i];
-                d += l.chars().filter(|&c| c == '{').count() as i32;
-                d -= l.chars().filter(|&c| c == '}').count() as i32;
-                i += 1;
-                if d <= 0 || i >= lines.len() {
-                    break;
-                }
-            }
-            continue;
-        }
-
-        // type Foo = ...;
-        if line.starts_with("type ") && line.contains('=') {
-            // Skip lines until we find one ending with ';' or exhaust lines
-            while i < lines.len() {
-                let ends = lines[i].trim_end().ends_with(';');
-                i += 1;
-                if ends {
-                    break;
-                }
-            }
-            continue;
-        }
-
-        // import type ...
-        if line.starts_with("import type ") {
-            i += 1;
-            continue;
-        }
-
-        out.push_str(lines[i]);
-        out.push('\n');
-        i += 1;
-    }
-
-    // Segunda pasada: eliminar anotaciones inline de tipos
-    let mut result = String::with_capacity(out.len());
-    let mut iter = out.chars().peekable();
-    let mut in_str = false;
-
-    while let Some(c) = iter.next() {
-        // Gestión de strings (no tocar el interior)
-        if (c == '"' || c == '\'' || c == '`') && !in_str {
-            in_str = true;
-            str_ch = c;
-            result.push(c);
-            continue;
-        }
-        if in_str {
-            if c == '\\' {
-                result.push(c);
-                if let Some(next) = iter.next() {
-                    result.push(next);
-                }
-                continue;
-            }
-            if c == str_ch {
-                in_str = false;
-            }
-            result.push(c);
-            continue;
-        }
-
-        // Anotación de tipo: `: Type` después de identificador / ) / ]
-        if c == ':' {
-            // Puede ser ternario (a ? b : c), label, o tipo TS
-            // Heurística: si el carácter anterior era palabra/)/], es tipo
-            let prev = result.chars().last();
-            let is_type_ann = matches!(prev,
-                Some(ch) if ch.is_alphanumeric() || ch == '_' || ch == ')' || ch == ']' || ch == '?' || ch == '"' || ch == '\''
-            );
-            if is_type_ann {
-                // Consumir hasta el fin del tipo (coma, ), {, =, ;, newline)
-                skip_type_expr(&mut iter);
-                continue;
-            }
-        }
-
-        // `as Type` — type assertion
-        if c == 'a' && iter.peek() == Some(&'s') {
-            let prev = result.chars().last();
-            if matches!(prev, Some(p) if p == ' ' || p == ')' || p == ']') {
-                // Comprobar que es `as` completo
-                let mut buf = String::from("a");
-                buf.push(iter.next().unwrap()); // 's'
-                if iter.peek().map(|c| c.is_whitespace()).unwrap_or(false) {
-                    // es `as Type`, consumir el tipo
-                    let _ = iter.next(); // espacio
-                    skip_type_expr(&mut iter);
-                    continue;
-                } else {
-                    result.push_str(&buf);
-                    continue;
-                }
-            }
-        }
-
-        // `!` non-null assertion al final de expresión
-        if c == '!' {
-            let next = iter.peek().copied();
-            if matches!(
-                next,
-                Some(')') | Some('.') | Some('[') | Some(';') | Some(',')
-            ) {
-                // Eliminar el !
-                continue;
-            }
-        }
-
-        // Access modifiers al inicio de class member
-        if result.ends_with('\n') || result.ends_with('{') || result.ends_with(';') {
-            let kw = peek_keyword(&result, c, &mut iter);
-            if matches!(
-                kw.as_str(),
-                "public" | "private" | "protected" | "readonly" | "abstract" | "override"
-            ) {
-                // Saltar la keyword y el espacio siguiente
-                skip_word(&mut iter);
-                continue;
-            }
-        }
-
-        result.push(c);
-    }
-
-    Ok(result)
-}
-
-fn skip_type_expr(iter: &mut std::iter::Peekable<std::str::Chars<'_>>) {
-    let mut depth = 0i32;
-    while let Some(&c) = iter.peek() {
-        match c {
-            '<' | '(' | '[' | '{' => {
-                depth += 1;
-                iter.next();
-            }
-            '>' | ')' | ']' | '}' => {
-                if depth > 0 {
-                    depth -= 1;
-                    iter.next();
-                } else {
-                    break;
-                }
-            }
-            ',' | ';' | '\n' if depth == 0 => break,
-            '=' if depth == 0 => break,
-            _ => {
-                iter.next();
-            }
-        }
-    }
-}
-
-fn skip_word(iter: &mut std::iter::Peekable<std::str::Chars<'_>>) {
-    while let Some(&c) = iter.peek() {
-        if c.is_alphanumeric() || c == '_' {
-            iter.next();
-        } else {
-            break;
-        }
-    }
-    // Saltar espacio siguiente
-    if iter.peek() == Some(&' ') {
-        iter.next();
-    }
-}
-
-fn peek_keyword(
-    ctx: &str,
-    first: char,
-    _iter: &mut std::iter::Peekable<std::str::Chars<'_>>,
-) -> String {
-    // Build the keyword from the already-collected result context.
-    // We look backwards from the end of `ctx` to find any partial word,
-    // then prepend `first` to build the full keyword.
-    // NOTE: We intentionally do NOT consume from `iter` here because
-    // non-matching keywords must remain in the stream for normal output.
-    let _ = ctx;
-    let mut word = String::new();
-    word.push(first);
-    // Peek ahead without consuming — collect chars that would form the keyword
-    let remaining: String = _iter
-        .clone()
-        .take_while(|c| c.is_alphanumeric() || *c == '_')
-        .collect();
-    word.push_str(&remaining);
-    word
 }
 
 // ── Motor WASM — js_sys::eval ─────────────────────────────────────────────────
@@ -645,14 +157,6 @@ fn eval_js(source: &str) -> JsOutput {
         if (!globalThis.__vfs_modules) globalThis.__vfs_modules = {};
         const __module_cache = {};
 
-        // DEBUG: mostrar en terminal qué claves hay en __vfs_modules
-        {
-            const keys = Object.keys(globalThis.__vfs_modules);
-            const npmKeys  = keys.filter(k => !k.startsWith('.') && !k.includes('/') === false && !k.startsWith('components') && !k.startsWith('pages') && !k.startsWith('lib') && !k.startsWith('index') && !k.startsWith('app'));
-            const projKeys = keys.filter(k => k.startsWith('./') || (!k.includes('/') && (k.endsWith('.js')||k.endsWith('.json'))));
-            __logs.push('[VFS] ' + keys.length + ' modules loaded. Sample: ' + keys.slice(0,8).join(', '));
-        }
-
         function __resolve_module_path(from_dir, dep) {
             if (!dep.startsWith('.')) return dep;
             const stack = (from_dir ? from_dir + '/' + dep : dep).split('/');
@@ -701,25 +205,19 @@ fn eval_js(source: &str) -> JsOutput {
 
 
         function __find_module_file(name) {
-            console.log('[DEBUG __find_module_file] Looking for:', name);
             const vfs = globalThis.__vfs_modules;
-            console.log('[DEBUG __find_module_file] VFS keys sample:', Object.keys(vfs).slice(0, 20));
             
             // Direct key match first (handles already-resolved paths like 'react/cjs/react.production.min.js')
             if (vfs[name] !== undefined) {
-                console.log('[DEBUG __find_module_file] Direct match found:', name);
                 return { path: name, code: vfs[name] };
             }
 
             // Leer main de package.json — preferir CJS (main) sobre ESM (module)
             const pkgPath = name + '/package.json';
             if (vfs[pkgPath]) {
-                console.log('[DEBUG __find_module_file] Found package.json at:', pkgPath);
                 try {
                     const pkg = JSON.parse(vfs[pkgPath]);
-                    console.log('[DEBUG __find_module_file] package.json content:', pkg);
                     const entry = __pick_package_entry(pkg);
-                    console.log('[DEBUG __find_module_file] Resolved entry point:', entry);
                     const normalizedEntry = String(entry).replace(/^\.\//, '');
                     const resolved = name + '/' + normalizedEntry;
                     const entryCandidates = [
@@ -739,13 +237,10 @@ fn eval_js(source: &str) -> JsOutput {
                     ];
                     for (const candidate of entryCandidates) {
                         if (vfs[candidate] !== undefined) {
-                            console.log('[DEBUG __find_module_file] Found entry at:', candidate);
                             return { path: candidate, code: vfs[candidate] };
                         }
                     }
-                } catch(e) {
-                    console.error('[DEBUG __find_module_file] Error parsing package.json:', e);
-                }
+                } catch(e) {}
             }
             // Fallback: candidatos en orden de prioridad (CJS antes que ESM)
             const candidates = [
@@ -905,21 +400,18 @@ fn eval_js(source: &str) -> JsOutput {
                 }).join(' ');
             });
             // export const/let/var/function/class X
-            code = code.replace(/^\s*export\s+(const|let|var)\s+(\w+)/gm,
-                "const $2 = exports.$2 = (exports.$2, ");
+            code = code.replace(/^\s*export\s+(const|let|var)\s+(\w+)\s*=\s*/gm,
+                "$1 $2 = exports.$2 = ");
             code = code.replace(/^\s*export\s+(function|class)\s+(\w+)/gm,
                 "exports.$2 = $1 $2");
             return code;
         }
 
         function __vfs_require(name) {
-            console.log('[DEBUG __vfs_require] Attempting to load:', name);
             if (__module_cache[name] !== undefined) {
-                console.log('[DEBUG __vfs_require] Found in cache:', name);
                 return __module_cache[name];
             }
             const found = __find_module_file(name);
-            console.log('[DEBUG __vfs_require] __find_module_file result for', name, ':', found);
             if (!found) throw new Error("Cannot find module '" + name + "'. Did you run npm install?");
             const { path: modPath, code: rawCode } = found;
             // Also cache by the resolved path to avoid double-loading
@@ -959,7 +451,6 @@ fn eval_js(source: &str) -> JsOutput {
                 delete __module_cache[modPath];
                 throw new Error("Error loading module '" + name + "': " + e.message);
             }
-            console.log('[DEBUG __vfs_require] Successfully loaded:', name);
             return mod.exports;
         }
 
@@ -1118,7 +609,8 @@ fn eval_js(source: &str) -> JsOutput {
             try {{ {source} }}
             catch(e) {{
                 const msg = String(e);
-                if (!msg.startsWith('__EXIT__:0')) __errs.push(msg);
+                const __exitMatch = msg.match(/__EXIT__:(\d+)/);
+                if (!__exitMatch) __errs.push(msg);
             }}
             finally {{
                 console.log   = __orig_log;

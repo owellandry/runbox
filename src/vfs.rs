@@ -205,6 +205,23 @@ impl Vfs {
                 self.stats.binary_count = self.stats.binary_count.saturating_sub(1);
             }
         }
+        // Limpiar metadatos de hijos (caso directorio)
+        let prefix = format!("{}/", path.trim_end_matches('/'));
+        let children: Vec<String> = self
+            .metadata
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for child_path in children {
+            if let Some(meta) = self.metadata.remove(&child_path) {
+                self.stats.file_count = self.stats.file_count.saturating_sub(1);
+                self.stats.total_size = self.stats.total_size.saturating_sub(meta.size);
+                if meta.is_binary {
+                    self.stats.binary_count = self.stats.binary_count.saturating_sub(1);
+                }
+            }
+        }
 
         if !path.starts_with("/.git/") {
             self.pending_changes.push(FileChange {

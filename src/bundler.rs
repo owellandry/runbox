@@ -206,7 +206,7 @@ impl JsxTransformer {
                 continue;
             }
             if in_template {
-                if c == '$' && chars.peek() == Some(&'{') {
+                if (c == '$' && chars.peek() == Some(&'{')) || (c == '{' && template_depth > 0) {
                     template_depth += 1;
                 }
                 if c == '}' && template_depth > 0 {

@@ -137,14 +137,14 @@ impl HttpCache {
             return; // Don't cache
         }
 
-        // Evict if needed
-        while self.current_size + size > self.max_size && !self.entries.is_empty() {
-            self.evict_lru();
-        }
-
         // Don't cache if single entry exceeds max
         if size > self.max_size {
             return;
+        }
+
+        // Evict if needed
+        while self.current_size + size > self.max_size && !self.entries.is_empty() {
+            self.evict_lru();
         }
 
         // Remove old entry if exists

@@ -307,7 +307,7 @@ impl PrivacyPolicy {
 
     /// Verifica si la política cumple con GDPR.
     pub fn is_gdpr_compliant(&self) -> bool {
-        !self.allow_telemetry || !self.allow_analytics
+        !self.allow_telemetry && !self.allow_analytics
     }
 }
 

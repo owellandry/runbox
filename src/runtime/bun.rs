@@ -105,7 +105,7 @@ fn bun_test(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<Exe
         pm.exit(pid, 0)?;
         return Ok(ok_out("No test files found (*.test.ts / *.spec.ts)\n"));
     }
-    spawn_bun(cmd, vfs, pm, "")
+    spawn_bun(cmd, vfs, pm, &test_files[0])
 }
 
 // ── Ejecutor ──────────────────────────────────────────────────────────────────

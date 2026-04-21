@@ -678,7 +678,13 @@ impl SecurityManager {
     }
 
     /// Verifica si se puede escribir un archivo.
-    pub fn check_write(&mut self, path: &str, size: usize, now_ms: u64) -> LimitCheck {
+    pub fn check_write(
+        &mut self,
+        path: &str,
+        size: usize,
+        is_new_file: bool,
+        now_ms: u64,
+    ) -> LimitCheck {
         // Rate limit
         let rate = self.rate_limiter.check("write", now_ms);
         if !rate.allowed {
@@ -728,8 +734,8 @@ impl SecurityManager {
             );
         }
 
-        // File count limit
-        if self.file_count >= self.limits.max_files {
+        // File count limit (solo para archivos nuevos)
+        if is_new_file && self.file_count >= self.limits.max_files {
             self.audit.log(
                 now_ms,
                 "write",
@@ -846,10 +852,12 @@ impl SecurityManager {
     }
 
     /// Actualiza los contadores de recursos tras una escritura exitosa.
-    pub fn record_write(&mut self, size: usize, is_new: bool) {
-        self.total_size += size;
+    pub fn record_write(&mut self, new_size: usize, is_new: bool, old_size: usize) {
         if is_new {
+            self.total_size += new_size;
             self.file_count += 1;
+        } else {
+            self.total_size = self.total_size.saturating_sub(old_size) + new_size;
         }
     }
 
@@ -1040,10 +1048,10 @@ mod tests {
         let mut sm = SecurityManager::new();
         sm.limits.max_file_size = 100;
 
-        let check = sm.check_write("/test.txt", 50, 1000);
+        let check = sm.check_write("/test.txt", 50, true, 1000);
         assert!(check.allowed);
 
-        let check = sm.check_write("/big.txt", 200, 2000);
+        let check = sm.check_write("/big.txt", 200, true, 2000);
         assert!(!check.allowed);
     }
 
