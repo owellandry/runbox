@@ -701,16 +701,25 @@ fn eval_js(source: &str) -> JsOutput {
 
 
         function __find_module_file(name) {
+            console.log('[DEBUG __find_module_file] Looking for:', name);
             const vfs = globalThis.__vfs_modules;
+            console.log('[DEBUG __find_module_file] VFS keys sample:', Object.keys(vfs).slice(0, 20));
+            
             // Direct key match first (handles already-resolved paths like 'react/cjs/react.production.min.js')
-            if (vfs[name] !== undefined) return { path: name, code: vfs[name] };
+            if (vfs[name] !== undefined) {
+                console.log('[DEBUG __find_module_file] Direct match found:', name);
+                return { path: name, code: vfs[name] };
+            }
 
             // Leer main de package.json — preferir CJS (main) sobre ESM (module)
             const pkgPath = name + '/package.json';
             if (vfs[pkgPath]) {
+                console.log('[DEBUG __find_module_file] Found package.json at:', pkgPath);
                 try {
                     const pkg = JSON.parse(vfs[pkgPath]);
+                    console.log('[DEBUG __find_module_file] package.json content:', pkg);
                     const entry = __pick_package_entry(pkg);
+                    console.log('[DEBUG __find_module_file] Resolved entry point:', entry);
                     const normalizedEntry = String(entry).replace(/^\.\//, '');
                     const resolved = name + '/' + normalizedEntry;
                     const entryCandidates = [
@@ -729,9 +738,14 @@ fn eval_js(source: &str) -> JsOutput {
                         resolved + '/index.jsx',
                     ];
                     for (const candidate of entryCandidates) {
-                        if (vfs[candidate] !== undefined) return { path: candidate, code: vfs[candidate] };
+                        if (vfs[candidate] !== undefined) {
+                            console.log('[DEBUG __find_module_file] Found entry at:', candidate);
+                            return { path: candidate, code: vfs[candidate] };
+                        }
                     }
-                } catch(e) {}
+                } catch(e) {
+                    console.error('[DEBUG __find_module_file] Error parsing package.json:', e);
+                }
             }
             // Fallback: candidatos en orden de prioridad (CJS antes que ESM)
             const candidates = [
@@ -899,8 +913,13 @@ fn eval_js(source: &str) -> JsOutput {
         }
 
         function __vfs_require(name) {
-            if (__module_cache[name] !== undefined) return __module_cache[name];
+            console.log('[DEBUG __vfs_require] Attempting to load:', name);
+            if (__module_cache[name] !== undefined) {
+                console.log('[DEBUG __vfs_require] Found in cache:', name);
+                return __module_cache[name];
+            }
             const found = __find_module_file(name);
+            console.log('[DEBUG __vfs_require] __find_module_file result for', name, ':', found);
             if (!found) throw new Error("Cannot find module '" + name + "'. Did you run npm install?");
             const { path: modPath, code: rawCode } = found;
             // Also cache by the resolved path to avoid double-loading
@@ -940,6 +959,7 @@ fn eval_js(source: &str) -> JsOutput {
                 delete __module_cache[modPath];
                 throw new Error("Error loading module '" + name + "': " + e.message);
             }
+            console.log('[DEBUG __vfs_require] Successfully loaded:', name);
             return mod.exports;
         }
 
