@@ -292,19 +292,11 @@ fn preload_vfs_modules(vfs: &crate::vfs::Vfs) {
         let mut project: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         collect_project_files(vfs, "/", &mut project);
-
-        // DEBUG: Log project files
-        web_sys::console::log_1(&format!("[DEBUG] Project files loaded: {}", project.len()).into());
-
         eval_into_vfs_modules(&project);
     }
 
     // 2. Un eval por paquete npm — aísla fallos de paquetes grandes
     if let Ok(pkg_names) = vfs.list("/node_modules") {
-        web_sys::console::log_1(
-            &format!("[DEBUG] Found {} packages in node_modules", pkg_names.len()).into(),
-        );
-
         for pkg_name in pkg_names {
             if pkg_name.starts_with('@') {
                 // Scoped package: @scope/package — scan inner directory
@@ -316,18 +308,6 @@ fn preload_vfs_modules(vfs: &crate::vfs::Vfs) {
                         let mut pkg_files: std::collections::HashMap<String, String> =
                             std::collections::HashMap::new();
                         collect_npm_package(vfs, &pkg_root, &full_name, &mut pkg_files);
-
-                        // DEBUG: Log package files
-                        web_sys::console::log_1(
-                            &format!("[DEBUG] Package {}: {} files", full_name, pkg_files.len())
-                                .into(),
-                        );
-                        if pkg_files.is_empty() {
-                            web_sys::console::warn_1(
-                                &format!("[WARN] Package {} has no files!", full_name).into(),
-                            );
-                        }
-
                         eval_into_vfs_modules(&pkg_files);
                     }
                 }
@@ -336,22 +316,9 @@ fn preload_vfs_modules(vfs: &crate::vfs::Vfs) {
                 let mut pkg_files: std::collections::HashMap<String, String> =
                     std::collections::HashMap::new();
                 collect_npm_package(vfs, &pkg_root, &pkg_name, &mut pkg_files);
-
-                // DEBUG: Log package files
-                web_sys::console::log_1(
-                    &format!("[DEBUG] Package {}: {} files", pkg_name, pkg_files.len()).into(),
-                );
-                if pkg_files.is_empty() {
-                    web_sys::console::warn_1(
-                        &format!("[WARN] Package {} has no files!", pkg_name).into(),
-                    );
-                }
-
                 eval_into_vfs_modules(&pkg_files);
             }
         }
-    } else {
-        web_sys::console::warn_1(&"[WARN] Could not list /node_modules directory".into());
     }
 }
 

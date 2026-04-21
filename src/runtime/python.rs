@@ -98,13 +98,28 @@ fn try_spawn_system_python(cmd: &Command, vfs: &mut Vfs) -> std::io::Result<Exec
     let output = SysCmd::new(binary)
         .arg("-W")
         .arg("ignore::DeprecationWarning")
+        .arg("-W")
+        .arg("ignore::PendingDeprecationWarning")
         .args(&cmd.args)
+        .env(
+            "PYTHONWARNINGS",
+            "ignore::DeprecationWarning,ignore::PendingDeprecationWarning",
+        )
+        .env("PYTHONDONTWRITEBYTECODE", "1")
         .current_dir(tmp.path())
         .output()?;
 
+    // Filtrar DeprecationWarnings residuales del stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let filtered_stderr: String = stderr
+        .lines()
+        .filter(|line| !line.contains("DeprecationWarning"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     Ok(ExecOutput {
         stdout: output.stdout,
-        stderr: output.stderr,
+        stderr: filtered_stderr.into_bytes(),
         exit_code: output.status.code().unwrap_or(1),
     })
 }

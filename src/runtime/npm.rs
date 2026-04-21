@@ -597,7 +597,8 @@ pub struct NpmPackageRequest {
     pub version: String,
 }
 
-/// Retorna la lista de paquetes del package.json que aún no están en node_modules.
+/// Retorna la lista de paquetes del package.json que aún no están en node_modules
+/// o que solo tienen un stub sin código real.
 pub fn packages_needed(vfs: &Vfs) -> Vec<NpmPackageRequest> {
     let pkg = match PackageJson::load(vfs) {
         Some(p) => p,
@@ -606,7 +607,41 @@ pub fn packages_needed(vfs: &Vfs) -> Vec<NpmPackageRequest> {
     pkg.dependencies
         .iter()
         .chain(pkg.dev_dependencies.iter())
-        .filter(|(name, _)| !vfs.exists(&format!("/node_modules/{name}/package.json")))
+        .filter(|(name, _)| {
+            let base = format!("/node_modules/{name}");
+            // Si ni siquiera hay package.json, falta completamente
+            if !vfs.exists(&format!("{base}/package.json")) {
+                return true;
+            }
+            // Verificar si hay código real: buscar el main o index.js
+            // Si el contenido contiene "RunBox stub" es un placeholder
+            let main_path = format!("{base}/index.js");
+            match vfs.read(&main_path) {
+                Ok(bytes) => {
+                    let content = String::from_utf8_lossy(bytes);
+                    content.contains("RunBox stub")
+                }
+                Err(_) => {
+                    // No hay index.js — podría tener un main diferente
+                    // Leer package.json para encontrar main
+                    if let Ok(pj_bytes) = vfs.read(&format!("{base}/package.json")) {
+                        if let Ok(pj) = serde_json::from_slice::<serde_json::Value>(pj_bytes) {
+                            if let Some(main) = pj.get("main").and_then(|v| v.as_str()) {
+                                let main_full = format!("{base}/{main}");
+                                !vfs.exists(&main_full)
+                            } else {
+                                // No main field y no index.js — necesita descarga
+                                true
+                            }
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                }
+            }
+        })
         .map(|(name, ver)| NpmPackageRequest {
             name: name.clone(),
             version: ver
@@ -745,12 +780,42 @@ fn pm_install(
                 match registry_install_package(name, ver, vfs) {
                     Ok(_) => resolved += 1,
                     Err(_) => {
-                        // Fallback: stub mínimo en node_modules
+                        // Fallback: stub funcional en node_modules que exporta
+                        // un proxy vacío para que require() no rompa.
+                        let bare_ver = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
                         let _ = vfs.write(
                             &format!("/node_modules/{name}/package.json"),
-                            serde_json::json!({ "name": name, "version": ver })
-                                .to_string()
-                                .into_bytes(),
+                            serde_json::json!({
+                                "name": name,
+                                "version": bare_ver,
+                                "main": "index.js"
+                            })
+                            .to_string()
+                            .into_bytes(),
+                        );
+                        // Crear un index.js stub que exporta un proxy permisivo
+                        // para que el código del usuario no crashee al acceder propiedades
+                        let stub_js = format!(
+                            r#"// RunBox stub for {name} — install failed, using offline proxy
+const handler = {{
+  get(target, prop) {{
+    if (prop === Symbol.toPrimitive) return () => '{name}';
+    if (prop === 'default' || prop === '__esModule') return target;
+    if (typeof prop === 'string') return new Proxy(function() {{}}, handler);
+    return undefined;
+  }},
+  apply() {{ return new Proxy({{}}, handler); }},
+  construct() {{ return new Proxy({{}}, handler); }},
+}};
+module.exports = new Proxy(function {name_ident}() {{}}, handler);
+module.exports.default = module.exports;
+"#,
+                            name = name,
+                            name_ident = name.replace(|c: char| !c.is_alphanumeric(), "_"),
+                        );
+                        let _ = vfs.write(
+                            &format!("/node_modules/{name}/index.js"),
+                            stub_js.into_bytes(),
                         );
                         failed.push(name.as_str());
                     }
@@ -758,10 +823,50 @@ fn pm_install(
             }
         }
 
-        // En WASM, NO crear stubs. Dejar que JavaScript descargue los paquetes
-        // usando npm_packages_needed() y npm_process_tarball().
+        // En WASM, crear stubs funcionales como safety net. El host JS
+        // debería llamar packages_needed() + process_tarball() para instalar
+        // los paquetes reales, pero si no lo hace, los stubs evitan que
+        // require() crashee con "Cannot find module".
         #[cfg(target_arch = "wasm32")]
         {
+            for (name, ver) in pkg.dependencies.iter().chain(pkg.dev_dependencies.iter()) {
+                // Solo crear stub si no existe ya código real
+                if !vfs.exists(&format!("/node_modules/{name}/index.js"))
+                    && !vfs.exists(&format!("/node_modules/{name}/lib/index.js"))
+                {
+                    let bare_ver = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
+                    let _ = vfs.write(
+                        &format!("/node_modules/{name}/package.json"),
+                        serde_json::json!({
+                            "name": name,
+                            "version": bare_ver,
+                            "main": "index.js"
+                        })
+                        .to_string()
+                        .into_bytes(),
+                    );
+                    let stub_js = format!(
+                        r#"// RunBox stub for {name} — pending download from registry
+var handler = {{
+  get: function(target, prop) {{
+    if (prop === 'default' || prop === '__esModule') return target;
+    if (typeof prop === 'string') return new Proxy(function(){{}}, handler);
+    return undefined;
+  }},
+  apply: function() {{ return new Proxy({{}}, handler); }},
+  construct: function() {{ return new Proxy({{}}, handler); }},
+}};
+module.exports = new Proxy(function(){{}}, handler);
+module.exports.default = module.exports;
+"#,
+                        name = name,
+                    );
+                    let _ = vfs.write(
+                        &format!("/node_modules/{name}/index.js"),
+                        stub_js.into_bytes(),
+                    );
+                }
+            }
             resolved = dep_count + dev_count;
         }
     }
@@ -815,10 +920,33 @@ fn pm_add(
         let bare_ver = ver.trim_start_matches(|c: char| !c.is_ascii_digit());
         vfs.write(
             &format!("/node_modules/{name}/package.json"),
-            serde_json::json!({ "name": name, "version": bare_ver })
+            serde_json::json!({ "name": name, "version": bare_ver, "main": "index.js" })
                 .to_string()
                 .into_bytes(),
         )?;
+        // Crear stub index.js funcional si no existe código real
+        let idx_path = format!("/node_modules/{name}/index.js");
+        if !vfs.exists(&idx_path) {
+            let stub_js = format!(
+                r#"// RunBox stub for {name} — pending download
+var handler = {{
+  get: function(t,p) {{ if(typeof p==='string') return new Proxy(function(){{}},handler); }},
+  apply: function() {{ return new Proxy({{}},handler); }},
+  construct: function() {{ return new Proxy({{}},handler); }},
+}};
+module.exports = new Proxy(function(){{}}, handler);
+"#,
+                name = name,
+            );
+            vfs.write(&idx_path, stub_js.into_bytes())?;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Intentar descargar paquete real del registry
+            let _ = registry_install_package(&name, &ver, vfs);
+        }
+
         added.push(format!("{name}@{bare_ver}"));
     }
 
