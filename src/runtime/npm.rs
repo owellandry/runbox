@@ -739,31 +739,30 @@ fn pm_install(
     if let Some(pkg) = &pkg {
         write_lock(vfs, pm_name, pkg)?;
 
-        for (name, ver) in pkg.dependencies.iter().chain(pkg.dev_dependencies.iter()) {
-            #[cfg(not(target_arch = "wasm32"))]
-            match registry_install_package(name, ver, vfs) {
-                Ok(_) => resolved += 1,
-                Err(_) => {
-                    // Fallback: stub mínimo en node_modules
-                    let _ = vfs.write(
-                        &format!("/node_modules/{name}/package.json"),
-                        serde_json::json!({ "name": name, "version": ver })
-                            .to_string()
-                            .into_bytes(),
-                    );
-                    failed.push(name.as_str());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            for (name, ver) in pkg.dependencies.iter().chain(pkg.dev_dependencies.iter()) {
+                match registry_install_package(name, ver, vfs) {
+                    Ok(_) => resolved += 1,
+                    Err(_) => {
+                        // Fallback: stub mínimo en node_modules
+                        let _ = vfs.write(
+                            &format!("/node_modules/{name}/package.json"),
+                            serde_json::json!({ "name": name, "version": ver })
+                                .to_string()
+                                .into_bytes(),
+                        );
+                        failed.push(name.as_str());
+                    }
                 }
             }
-            #[cfg(target_arch = "wasm32")]
-            {
-                let _ = vfs.write(
-                    &format!("/node_modules/{name}/package.json"),
-                    serde_json::json!({ "name": name, "version": ver })
-                        .to_string()
-                        .into_bytes(),
-                );
-                resolved += 1;
-            }
+        }
+
+        // En WASM, NO crear stubs. Dejar que JavaScript descargue los paquetes
+        // usando npm_packages_needed() y npm_process_tarball().
+        #[cfg(target_arch = "wasm32")]
+        {
+            resolved = dep_count + dev_count;
         }
     }
 
