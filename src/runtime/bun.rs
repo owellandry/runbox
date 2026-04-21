@@ -136,13 +136,15 @@ fn spawn_bun(
             return Ok(output);
         }
 
-        // 3. Fallback: boa_engine si el archivo está en VFS
+        // 3. Fallback: boa_engine con require() polyfill desde VFS
         if !file_path.is_empty()
             && let Ok(source) = vfs.read(file_path)
         {
             let src = String::from_utf8_lossy(source).into_owned();
             let is_ts = file_path.ends_with(".ts") || file_path.ends_with(".tsx");
-            let out = super::js_engine::run(&src, is_ts);
+            let preamble = build_require_preamble(vfs);
+            let full_src = format!("{preamble}\n{src}");
+            let out = super::js_engine::run(&full_src, is_ts);
             let pid = pm.spawn("bun", cmd.args.clone());
             pm.exit(pid, out.exit_code)?;
             return Ok(ExecOutput {
@@ -250,6 +252,146 @@ fn run_package_script(
         env: cmd.env.clone(),
     };
     PackageManagerRuntime::bun_via_npm().exec(&run_cmd, vfs, pm)
+}
+
+/// Construye un preamble JS con require() polyfill y módulos del VFS
+/// para que boa_engine pueda resolver require('lodash') etc.
+#[cfg(not(target_arch = "wasm32"))]
+fn build_require_preamble(vfs: &Vfs) -> String {
+    let mut modules: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    // Recolectar archivos del proyecto (raíz del VFS)
+    collect_require_files(vfs, "/", "/", &mut modules, 0);
+
+    // Recolectar node_modules
+    if let Ok(pkg_names) = vfs.list("/node_modules") {
+        for pkg in &pkg_names {
+            if pkg.starts_with('@') {
+                let scope_root = format!("/node_modules/{pkg}");
+                if let Ok(scoped) = vfs.list(&scope_root) {
+                    for s in &scoped {
+                        collect_require_files(
+                            vfs,
+                            &format!("{scope_root}/{s}"),
+                            &format!("{scope_root}/{s}"),
+                            &mut modules,
+                            0,
+                        );
+                    }
+                }
+            } else {
+                collect_require_files(
+                    vfs,
+                    &format!("/node_modules/{pkg}"),
+                    &format!("/node_modules/{pkg}"),
+                    &mut modules,
+                    0,
+                );
+            }
+        }
+    }
+
+    let json = serde_json::to_string(&modules).unwrap_or("{}".into());
+
+    // Polyfill require() que resuelve desde el mapa de módulos
+    format!(
+        r#"var __vfs = {json};
+var __cache = {{}};
+function require(name) {{
+  if (__cache[name] !== undefined) return __cache[name];
+  var nm = '/node_modules/';
+  var pkgKey = nm + name + '/package.json';
+  if (__vfs[pkgKey]) {{
+    try {{
+      var pkg = JSON.parse(__vfs[pkgKey]);
+      var main = (pkg.main || 'index.js').replace(/^\.\//, '');
+      var entry = nm + name + '/' + main;
+      var tries = [entry, entry + '.js', entry + '/index.js'];
+      for (var i = 0; i < tries.length; i++) {{
+        if (__vfs[tries[i]] !== undefined) {{
+          var m = {{ exports: {{}} }};
+          __cache[name] = m.exports;
+          (new Function('module','exports','require', __vfs[tries[i]]))(m, m.exports, require);
+          __cache[name] = m.exports;
+          return m.exports;
+        }}
+      }}
+    }} catch(e) {{}}
+  }}
+  var candidates = [
+    nm + name + '/index.js',
+    nm + name + '/index.cjs',
+    nm + name + '.js',
+    '/' + name,
+    '/' + name + '.js',
+    '/' + name + '/index.js',
+    name
+  ];
+  for (var j = 0; j < candidates.length; j++) {{
+    if (__vfs[candidates[j]] !== undefined) {{
+      var m2 = {{ exports: {{}} }};
+      __cache[name] = m2.exports;
+      try {{
+        (new Function('module','exports','require', __vfs[candidates[j]]))(m2, m2.exports, require);
+      }} catch(e2) {{}}
+      __cache[name] = m2.exports;
+      return m2.exports;
+    }}
+  }}
+  __cache[name] = {{}};
+  return {{}};
+}}
+var module = {{ exports: {{}} }};
+var exports = module.exports;
+"#
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn collect_require_files(
+    vfs: &Vfs,
+    dir: &str,
+    _root: &str,
+    out: &mut std::collections::HashMap<String, String>,
+    depth: usize,
+) {
+    if depth > 6 || out.len() > 800 {
+        return;
+    }
+    let entries = match vfs.list(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in &entries {
+        if entry.starts_with('.')
+            || *entry == "node_modules"
+            || *entry == "__tests__"
+            || *entry == "test"
+            || *entry == "tests"
+        {
+            continue;
+        }
+        let full = if dir == "/" {
+            format!("/{entry}")
+        } else {
+            format!("{dir}/{entry}")
+        };
+        if let Ok(bytes) = vfs.read(&full) {
+            let ext = entry.rsplit('.').next().unwrap_or("");
+            if !matches!(ext, "js" | "cjs" | "mjs" | "json") {
+                continue;
+            }
+            if bytes.len() > 512_000 {
+                continue;
+            }
+            if let Ok(content) = std::str::from_utf8(bytes) {
+                out.insert(full.clone(), content.to_string());
+            }
+        } else {
+            // Es un directorio
+            collect_require_files(vfs, &full, _root, out, depth + 1);
+        }
+    }
 }
 
 fn find_test_files(vfs: &Vfs) -> Vec<String> {

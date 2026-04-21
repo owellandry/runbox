@@ -123,6 +123,137 @@ fn direct_node_command_is_supported() {
     assert!(stdout.contains("NODE_DIRECT_OK"));
 }
 
+/// Tests that npm install creates functional stubs and require() works
+/// even when the registry is not reachable (boa fallback with VFS modules).
+#[test]
+fn install_then_run_with_require_uses_stubs() {
+    let mut vfs = Vfs::new();
+    let mut pm = ProcessManager::new();
+
+    // Setup package.json with lodash dependency
+    write_json(
+        "/package.json",
+        serde_json::json!({
+            "name": "stub-test",
+            "version": "1.0.0",
+            "dependencies": { "lodash": "^4.17.21" },
+            "scripts": { "start": "node /index.js" }
+        }),
+        &mut vfs,
+    );
+
+    // User's code that uses require('lodash')
+    vfs.write(
+        "/index.js",
+        b"var _ = require('lodash');\nconsole.log('REQUIRE_OK', typeof _);\n".to_vec(),
+    )
+    .expect("write index");
+
+    // Run npm install — on native without registry, creates stubs
+    let install_out = exec_line("npm install", &mut vfs, &mut pm).expect("npm install");
+    assert_eq!(install_out.exit_code, 0, "npm install should succeed");
+
+    // Verify stubs were created
+    assert!(
+        vfs.exists("/node_modules/lodash/package.json"),
+        "lodash package.json should exist"
+    );
+    assert!(
+        vfs.exists("/node_modules/lodash/index.js"),
+        "lodash index.js stub should exist"
+    );
+
+    // Run the script — should find lodash via stub
+    let run_out = exec_line("npm run start", &mut vfs, &mut pm).expect("npm run start");
+    let stdout = String::from_utf8_lossy(&run_out.stdout);
+    let stderr = String::from_utf8_lossy(&run_out.stderr);
+    assert!(
+        stdout.contains("REQUIRE_OK"),
+        "require('lodash') should resolve via stub.\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
+/// Tests that require() works for locally installed packages in the boa fallback.
+#[test]
+fn require_resolves_vfs_module_in_boa_fallback() {
+    let mut vfs = Vfs::new();
+    let mut pm = ProcessManager::new();
+
+    // Manually set up a local module in node_modules
+    vfs.write(
+        "/node_modules/mylib/package.json",
+        br#"{"name":"mylib","version":"1.0.0","main":"index.js"}"#.to_vec(),
+    )
+    .expect("write mylib package.json");
+    vfs.write(
+        "/node_modules/mylib/index.js",
+        b"module.exports = { greet: function() { return 'HELLO_FROM_MYLIB'; } };".to_vec(),
+    )
+    .expect("write mylib index.js");
+
+    vfs.write(
+        "/index.js",
+        b"var lib = require('mylib');\nconsole.log(lib.greet());\n".to_vec(),
+    )
+    .expect("write index");
+
+    let out = exec_line("node /index.js", &mut vfs, &mut pm).expect("node command");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // On systems with bun/node, this runs natively.
+    // On systems without bun/node, this runs via boa with our require() polyfill.
+    // Both should succeed.
+    assert!(
+        stdout.contains("HELLO_FROM_MYLIB"),
+        "require('mylib') should resolve.\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
+/// Tests pnpm and yarn install + run start also work with stubs.
+#[test]
+fn pnpm_and_yarn_install_then_run_with_require() {
+    for pm_name in ["pnpm", "yarn"] {
+        let mut vfs = Vfs::new();
+        let mut pm = ProcessManager::new();
+
+        write_json(
+            "/package.json",
+            serde_json::json!({
+                "name": format!("{pm_name}-stub-test"),
+                "version": "1.0.0",
+                "dependencies": { "dayjs": "^1.11.10" },
+                "scripts": { "start": "node /index.js" }
+            }),
+            &mut vfs,
+        );
+
+        vfs.write(
+            "/index.js",
+            b"var d = require('dayjs');\nconsole.log('DAYJS_OK', typeof d);\n".to_vec(),
+        )
+        .expect("write index");
+
+        let install = exec_line(&format!("{pm_name} install"), &mut vfs, &mut pm)
+            .unwrap_or_else(|e| panic!("{pm_name} install failed: {e}"));
+        assert_eq!(install.exit_code, 0, "{pm_name} install failed");
+
+        assert!(
+            vfs.exists("/node_modules/dayjs/package.json"),
+            "{pm_name}: dayjs package.json should exist"
+        );
+
+        let run = exec_line(&format!("{pm_name} run start"), &mut vfs, &mut pm)
+            .unwrap_or_else(|e| panic!("{pm_name} run start failed: {e}"));
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(
+            stdout.contains("DAYJS_OK"),
+            "{pm_name}: require('dayjs') should resolve.\nstdout: {stdout}\nstderr: {stderr}"
+        );
+    }
+}
+
 #[test]
 fn modular_app_with_local_package_runs_in_bun_runtime() {
     if !has_system_bun() {

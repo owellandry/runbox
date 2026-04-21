@@ -56,9 +56,6 @@ fn python_inline(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Resul
 }
 
 fn spawn_python(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result<ExecOutput> {
-    #[cfg(target_arch = "wasm32")]
-    let _ = vfs;
-
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(output) = try_spawn_system_python(cmd, vfs) {
@@ -68,7 +65,92 @@ fn spawn_python(cmd: &Command, vfs: &mut Vfs, pm: &mut ProcessManager) -> Result
         }
     }
 
-    // Python no disponible en el sistema / WASM — fallback
+    // WASM: intentar ejecutar vía Pyodide si está disponible en el browser
+    #[cfg(target_arch = "wasm32")]
+    {
+        let python_code = if cmd.args.first().map(String::as_str) == Some("-c") {
+            cmd.args.get(1).cloned()
+        } else if let Some(file) = cmd.args.first() {
+            let path = if file.starts_with('/') {
+                file.clone()
+            } else {
+                format!("/{file}")
+            };
+            vfs.read(&path)
+                .ok()
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+        } else {
+            None
+        };
+
+        if let Some(code) = python_code {
+            // Prepend warning suppression
+            let wrapped = format!(
+                "import warnings\nwarnings.filterwarnings('ignore', category=DeprecationWarning)\n\
+                 warnings.filterwarnings('ignore', category=PendingDeprecationWarning)\n{code}"
+            );
+            let code_json = serde_json::to_string(&wrapped).unwrap_or_default();
+            let eval_script = format!(
+                r#"(function(){{
+  if(typeof globalThis.pyodide!=='undefined'){{
+    try{{
+      globalThis.pyodide.runPython("import sys; sys.stdout=__import__('io').StringIO(); sys.stderr=__import__('io').StringIO()");
+      globalThis.pyodide.runPython({code_json});
+      var out=globalThis.pyodide.runPython("sys.stdout.getvalue()");
+      var err=globalThis.pyodide.runPython("sys.stderr.getvalue()");
+      globalThis.pyodide.runPython("sys.stdout=sys.__stdout__; sys.stderr=sys.__stderr__");
+      return JSON.stringify({{ok:true,stdout:out||'',stderr:err||''}});
+    }}catch(e){{
+      try{{globalThis.pyodide.runPython("sys.stdout=sys.__stdout__; sys.stderr=sys.__stderr__")}}catch(_){{}}
+      return JSON.stringify({{ok:false,error:e.message||String(e)}});
+    }}
+  }}
+  return '__NO_PYODIDE__';
+}})()"#
+            );
+
+            if let Ok(val) = js_sys::eval(&eval_script) {
+                if let Some(s) = val.as_string() {
+                    if s != "__NO_PYODIDE__" {
+                        if let Ok(result) = serde_json::from_str::<serde_json::Value>(&s) {
+                            let pid = pm.spawn(&cmd.program, cmd.args.clone());
+                            if result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                let stdout =
+                                    result.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+                                let stderr_raw =
+                                    result.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+                                // Filter remaining DeprecationWarnings from stderr
+                                let stderr: String = stderr_raw
+                                    .lines()
+                                    .filter(|l| !l.contains("DeprecationWarning"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                pm.exit(pid, 0)?;
+                                return Ok(ExecOutput {
+                                    stdout: stdout.as_bytes().to_vec(),
+                                    stderr: stderr.into_bytes(),
+                                    exit_code: 0,
+                                });
+                            } else {
+                                let err = result
+                                    .get("error")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("Python error");
+                                pm.exit(pid, 1)?;
+                                return Ok(ExecOutput {
+                                    stdout: vec![],
+                                    stderr: err.as_bytes().to_vec(),
+                                    exit_code: 1,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Python no disponible en el sistema / WASM sin Pyodide — fallback
     let pid = pm.spawn(&cmd.program, cmd.args.clone());
     pm.exit(pid, 0)?;
     let file = cmd.args.first().map(String::as_str).unwrap_or("?");
