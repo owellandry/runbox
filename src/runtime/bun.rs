@@ -128,12 +128,12 @@ fn spawn_bun(
         }
 
         // 2. Intentar node del sistema (tiene require() nativo)
-        if !file_path.is_empty() {
-            if let Ok(output) = try_spawn_system_node(cmd, vfs, file_path) {
-                let pid = pm.spawn("node", cmd.args.clone());
-                pm.exit(pid, output.exit_code)?;
-                return Ok(output);
-            }
+        if !file_path.is_empty()
+            && let Ok(output) = try_spawn_system_node(cmd, vfs, file_path)
+        {
+            let pid = pm.spawn("node", cmd.args.clone());
+            pm.exit(pid, output.exit_code)?;
+            return Ok(output);
         }
 
         // 3. Fallback: boa_engine si el archivo está en VFS
